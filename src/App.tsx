@@ -12401,10 +12401,10 @@ export default function App() {
 
       if (!isPresenting) return;
 
-      if (e.key === 'PageDown' || e.key === 'ArrowRight' || e.key === 'ArrowDown') {
+      if (e.key === 'PageDown' || e.key === 'ArrowRight' || e.key === 'ArrowDown' || e.key === 'AudioVolumeDown' || e.key === 'VolumeDown') {
         e.preventDefault();
         goToNextSlide();
-      } else if (e.key === 'PageUp' || e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
+      } else if (e.key === 'PageUp' || e.key === 'ArrowLeft' || e.key === 'ArrowUp' || e.key === 'AudioVolumeUp' || e.key === 'VolumeUp') {
         e.preventDefault();
         goToPrevSlide();
       } else if (e.key === 'Escape') {
