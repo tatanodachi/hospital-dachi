@@ -2141,10 +2141,12 @@ const useTooltip = (tooltip) => {
       const handleGlobalClick = () => setTooltipState(false);
       const timeout = setTimeout(() => {
         window.addEventListener("click", handleGlobalClick, { passive: true });
+        window.addEventListener("close-all-tooltips", handleGlobalClick, { passive: true });
       }, 0);
       return () => {
         clearTimeout(timeout);
         window.removeEventListener("click", handleGlobalClick);
+        window.removeEventListener("close-all-tooltips", handleGlobalClick);
       };
     }
   }, [tooltipState]);
@@ -2165,7 +2167,12 @@ const KPITooltipIcon = memo(({ tooltip, tooltipState, setTooltipState }) => {
         type="button"
         onClick={(e) => {
           e.stopPropagation();
-          setTooltipState(tooltipState === "click" ? false : "click");
+          if (tooltipState === "click") {
+            setTooltipState(false);
+          } else {
+            window.dispatchEvent(new Event("close-all-tooltips"));
+            setTooltipState("click");
+          }
         }}
         className={`text-[#4C4A4B]/60 hover:text-[#1C6048] transition-colors focus:outline-none p-0.5 ${showTooltip ? 'relative z-[80]' : ''}`}
         aria-label="More information"
@@ -2180,19 +2187,22 @@ const KPITooltipIcon = memo(({ tooltip, tooltipState, setTooltipState }) => {
             onClick={(e) => { e.stopPropagation(); setTooltipState(false); }} 
           />
           <div 
-            className="absolute top-full right-0 sm:-right-2 mt-2 w-[240px] p-3.5 bg-[#121E20]/95 backdrop-blur-md text-white rounded-xl shadow-[0_12px_40px_rgba(0,0,0,0.3)] border border-white/15 z-[100] text-xs font-medium leading-relaxed normal-case tracking-normal animate-in fade-in slide-in-from-top-2 duration-200"
+            className="absolute top-full right-0 sm:-right-2 mt-2 w-[240px] p-4 bg-[#1E2F31] text-white rounded-xl shadow-[0_8px_30px_rgba(30,47,49,0.9)] border border-[#1C6048]/40 z-[100] text-xs font-medium leading-relaxed normal-case tracking-normal animate-in fade-in slide-in-from-top-2 duration-200"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="font-bold text-white mb-2 flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-[#99B6AA]">
-              <Info size={12} className="text-[#99B6AA]" /> Metric Insight
-            </div>
-            <p className="text-white/90 text-[11px] leading-relaxed mb-3">{tooltip.desc}</p>
-            {tooltip.formula && (
-              <div className="bg-black/20 p-2 rounded-lg border border-white/10 font-mono text-[9px] text-[#48B084]">
-                <span className="text-white/40 block text-[8px] uppercase font-sans font-bold tracking-widest mb-1 shadow-sm">Formula</span>
-                {tooltip.formula}
+            <div className="absolute -top-1.5 right-3 w-3 h-3 bg-[#1E2F31] rounded-sm transform rotate-45 border-t border-l border-[#1C6048]/40"></div>
+            <div className="relative z-10">
+              <div className="font-bold text-white mb-2 flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-[#99B6AA]">
+                <Info size={12} className="text-[#99B6AA]" /> Metric Insight
               </div>
-            )}
+              <p className="text-white/90 text-[11px] leading-relaxed mb-3">{tooltip.desc}</p>
+              {tooltip.formula && (
+                <div className="bg-black/20 p-2 rounded-lg border border-white/10 font-mono text-[9px] text-[#48B084]">
+                  <span className="text-white/40 block text-[8px] uppercase font-sans font-bold tracking-widest mb-1 shadow-sm">Formula</span>
+                  {tooltip.formula}
+                </div>
+              )}
+            </div>
           </div>
         </>
       )}
@@ -2202,7 +2212,8 @@ const KPITooltipIcon = memo(({ tooltip, tooltipState, setTooltipState }) => {
 
 const KPICard = memo(({ title, value, icon, color, subtitle, tooltip }) => {
   const { tooltipState, setTooltipState } = useTooltip(tooltip);
-  const showTooltip = tooltipState !== false;
+  
+  const zClass = tooltipState === 'click' ? 'z-[110]' : (tooltipState === 'hover' ? 'z-[100]' : 'z-10 hover:z-[60]');
   
   const textColors = {
     blue: "text-[#1C6048]",
@@ -2212,12 +2223,12 @@ const KPICard = memo(({ title, value, icon, color, subtitle, tooltip }) => {
 
   return (
     <div 
-      className={`p-4 lg:p-5 rounded-2xl border border-[#D8D8D8] bg-white flex flex-col shadow-sm transition-transform md:hover:-translate-y-1 relative group ${showTooltip ? 'z-[60]' : 'z-10 hover:z-[60]'} focus-within:z-[60]`}
+      className={`p-4 lg:p-5 rounded-2xl border border-[#D8D8D8] bg-white flex flex-col shadow-sm transition-transform md:hover:-translate-y-1 relative group ${zClass} focus-within:z-[60]`}
     >
       <div
-        className={`flex items-center justify-between mb-2 opacity-80 text-[9px] lg:text-[10px] font-black uppercase tracking-widest ${textColors[color] || "text-[#1E2F31]"}`}
+        className={`flex items-center justify-between mb-2 text-[9px] lg:text-[10px] font-black uppercase tracking-widest ${textColors[color] || "text-[#1E2F31]"}`}
       >
-        <div className="flex items-center gap-1.5">
+        <div className="flex items-center gap-1.5 opacity-80">
           {icon} {title}
         </div>
         <KPITooltipIcon tooltip={tooltip} tooltipState={tooltipState} setTooltipState={setTooltipState} />
@@ -2250,7 +2261,8 @@ const DualKPICard = memo(
   ({ title1, value1, color1, tooltip1, title2, value2, color2, tooltip2, icon }) => {
     const { tooltipState: ts1, setTooltipState: setTs1 } = useTooltip(tooltip1);
     const { tooltipState: ts2, setTooltipState: setTs2 } = useTooltip(tooltip2);
-    const showTooltip = ts1 !== false || ts2 !== false;
+    
+    const zClass = (ts1 === 'click' || ts2 === 'click') ? 'z-[110]' : (ts1 === 'hover' || ts2 === 'hover' ? 'z-[100]' : 'z-10 hover:z-[60]');
 
     const tColors = {
       blue: "text-[#1C6048]",
@@ -2261,11 +2273,11 @@ const DualKPICard = memo(
       rose: "text-[#4C4A4B]",
     };
     return (
-      <div className={`p-4 lg:p-5 rounded-2xl border border-[#D8D8D8] bg-white flex flex-col shadow-sm transition-transform hover:-translate-y-1 relative group ${showTooltip ? 'z-[60]' : 'z-10 hover:z-[60]'} focus-within:z-[60]`}>
+      <div className={`p-4 lg:p-5 rounded-2xl border border-[#D8D8D8] bg-white flex flex-col shadow-sm transition-transform hover:-translate-y-1 relative group ${zClass} focus-within:z-[60]`}>
         <div
-          className={`flex items-center gap-2 mb-2 opacity-80 text-[10px] font-black uppercase tracking-widest ${tColors[color1] || "text-[#1E2F31]"}`}
+          className={`flex items-center gap-2 mb-2 text-[10px] font-black uppercase tracking-widest ${tColors[color1] || "text-[#1E2F31]"}`}
         >
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-1.5 opacity-80">
             {icon} {title1}
           </div>
           <KPITooltipIcon tooltip={tooltip1} tooltipState={ts1} setTooltipState={setTs1} />
@@ -2277,9 +2289,9 @@ const DualKPICard = memo(
         </div>
         <div className="w-full h-px bg-[#D8D8D8] my-3"></div>
         <div
-          className={`flex items-center gap-2 mb-2 opacity-80 text-[10px] font-black uppercase tracking-widest ${tColors[color2] || "text-[#1E2F31]"}`}
+          className={`flex items-center gap-2 mb-2 text-[10px] font-black uppercase tracking-widest ${tColors[color2] || "text-[#1E2F31]"}`}
         >
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-1.5 opacity-80">
             {title2}
           </div>
           <KPITooltipIcon tooltip={tooltip2} tooltipState={ts2} setTooltipState={setTs2} />
@@ -2803,11 +2815,12 @@ const PartnerReturnCard = ({ name, metrics, equity, share, color }) => {
           {(share || 0).toFixed(2)}%
         </p>
       </div>
-      <div className="mb-6">
+      <div className="mb-6 pr-20 lg:pr-24">
         <h3
-          className={`text-lg font-bold text-[#1E2F31] flex items-center gap-2 mb-1`}
+          className={`text-lg font-bold text-[#1E2F31] flex items-start gap-2 mb-1`}
         >
-          <Users size={20} className={c.text} /> {name}
+          <Users size={20} className={`shrink-0 mt-0.5 ${c.text}`} /> 
+          <span className="leading-tight">{name}</span>
         </h3>
         <p className="text-xs text-[#4C4A4B] font-medium">
           Avg Dividend Yield:{" "}
@@ -12371,6 +12384,37 @@ export default function App() {
       setActiveCompany(prev.company);
     }
   };
+
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      // Ignore if typing in an input/textarea
+      const tag = (e.target || e.srcElement)?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+
+      if (e.key === 'F5') {
+        e.preventDefault();
+        if (!isPresenting) {
+          setIsPresenting(true);
+        }
+        return;
+      }
+
+      if (!isPresenting) return;
+
+      if (e.key === 'PageDown' || e.key === 'ArrowRight' || e.key === 'ArrowDown') {
+        e.preventDefault();
+        goToNextSlide();
+      } else if (e.key === 'PageUp' || e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
+        e.preventDefault();
+        goToPrevSlide();
+      } else if (e.key === 'Escape') {
+        setIsPresenting(false);
+      }
+    };
+    
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isPresenting, safeSlideIndex, presentationSteps.length]);
 
   const projConfig = useMemo(() => {
     if (holdCoScenario === "manual")
