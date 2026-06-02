@@ -6374,12 +6374,11 @@ const StudyView = memo(({ isPresenting, info }) => {
     <div className="space-y-6 animate-in fade-in duration-500 pb-12 relative">
       {/* Navigation Bar for Study */}
       <div className={`w-full flex justify-center sticky top-[164px] sm:top-[140px] md:top-[104px] z-[110] transition-all duration-300`}>
-        <div className="relative max-w-full flex justify-center">
-          {!isPresenting && (
-            <div className="absolute -inset-x-12 -inset-y-6 pointer-events-none backdrop-blur-md [mask-image:radial-gradient(ellipse_at_center,black_30%,transparent_75%)] -z-10" />
-          )}
-          <div
-            className={`flex p-1.5 rounded-2xl border border-[#D8D8D8] w-fit overflow-x-auto max-w-full transition-all ${
+        {!isPresenting && (
+          <div className="absolute inset-x-0 -top-6 -bottom-2 pointer-events-none backdrop-blur-md [mask-image:linear-gradient(to_bottom,transparent,black_20%,black_80%,transparent)] -z-10" />
+        )}
+        <div
+          className={`flex p-1.5 rounded-2xl border border-[#D8D8D8] w-fit overflow-x-auto max-w-full transition-all ${
               isPresenting
                 ? "bg-white/95 backdrop-blur-md shadow-[0_10px_40px_rgba(30,47,49,0.15)] fixed bottom-28 left-1/2 -translate-x-1/2 z-[105]"
                 : "bg-white/90 backdrop-blur-md shadow-sm hover:shadow-md mb-6"
@@ -6403,7 +6402,6 @@ const StudyView = memo(({ isPresenting, info }) => {
           >
             <Stethoscope size={16} /> Facility & Rooms
           </button>
-        </div>
         </div>
       </div>
 
@@ -12948,12 +12946,11 @@ export default function App() {
         {/* FINANCIALS SUB-NAVIGATION (Matches Study Tab Style) */}
         {activeGroup === "financials" && (
           <div className={`w-full flex justify-center sticky top-[164px] sm:top-[140px] md:top-[104px] z-[110] transition-all duration-300`}>
-            <div className="relative max-w-full flex justify-center">
-              {!isPresenting && (
-                <div className="absolute -inset-x-12 -inset-y-6 pointer-events-none backdrop-blur-[8px] [mask-image:radial-gradient(ellipse_at_center,black_30%,transparent_75%)] -z-10" />
-              )}
-              <div
-                className={`flex p-1.5 gap-1 rounded-2xl border border-[#D8D8D8] w-fit overflow-x-auto max-w-full transition-all ${
+            {!isPresenting && (
+              <div className="absolute inset-x-0 -top-6 -bottom-2 pointer-events-none backdrop-blur-[8px] [mask-image:linear-gradient(to_bottom,transparent,black_20%,black_80%,transparent)] -z-10" />
+            )}
+            <div
+              className={`flex p-1.5 gap-1 rounded-2xl border border-[#D8D8D8] w-fit overflow-x-auto max-w-full transition-all ${
                   isPresenting
                     ? "bg-white/95 backdrop-blur-md shadow-[0_10px_40px_rgba(30,47,49,0.15)] fixed bottom-[100px] left-1/2 -translate-x-1/2 z-[105]"
                     : "bg-white/90 backdrop-blur-md shadow-sm hover:shadow-md mb-6"
@@ -12993,7 +12990,6 @@ export default function App() {
               <AIMicroscopeIcon size={16} /> AI Audit
             </button>
           </div>
-         </div>
         </div>
         )}
 
