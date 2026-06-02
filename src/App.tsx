@@ -4084,7 +4084,7 @@ const mapLocations = [
     id: "tb",
     name: "TB Simatupang",
     group: "General",
-    desc: "South Jakarta competitor node",
+    desc: "South Jakarta node",
     lat: -6.2932,
     lon: 106.8189,
     color: "#9B8B70",
@@ -4262,10 +4262,28 @@ const InteractiveDemographicMap = memo(() => {
   }, [viewMode]);
 
   useEffect(() => {
-    if (window.L) {
+    if (window.L && window.L.GestureHandling) {
       setLeafletReady(true);
       return;
     }
+
+    const loadGestureHandling = () => {
+      const ghCSS = document.createElement("link");
+      ghCSS.rel = "stylesheet";
+      ghCSS.href = "https://unpkg.com/leaflet-gesture-handling@1.2.2/dist/leaflet-gesture-handling.min.css";
+      document.head.appendChild(ghCSS);
+
+      const ghJS = document.createElement("script");
+      ghJS.src = "https://unpkg.com/leaflet-gesture-handling@1.2.2/dist/leaflet-gesture-handling.min.js";
+      ghJS.onload = () => setLeafletReady(true);
+      document.body.appendChild(ghJS);
+    };
+
+    if (window.L) {
+      loadGestureHandling();
+      return;
+    }
+
     const leafletCSS = document.createElement("link");
     leafletCSS.rel = "stylesheet";
     leafletCSS.href = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css";
@@ -4273,7 +4291,7 @@ const InteractiveDemographicMap = memo(() => {
 
     const leafletJS = document.createElement("script");
     leafletJS.src = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js";
-    leafletJS.onload = () => setLeafletReady(true);
+    leafletJS.onload = loadGestureHandling;
     document.body.appendChild(leafletJS);
   }, []);
 
@@ -4291,7 +4309,10 @@ const InteractiveDemographicMap = memo(() => {
       container._leaflet_id = null;
     }
 
-    const map = L.map("demographics-map", { zoomControl: false }).setView(
+    const map = L.map("demographics-map", { 
+      zoomControl: false,
+      gestureHandling: true
+    }).setView(
       [-6.1543, 106.7398],
       11,
     );
@@ -4540,7 +4561,7 @@ const InteractiveDemographicMap = memo(() => {
       const groupColor = getGroupColor(region.group);
       layer.setStyle({
         color: groupColor,
-        weight: isHovered ? 2.5 : 1.5,
+        weight: isHovered ? 2.5 : 0.5,
         dashArray: "4, 4",
         fillColor: groupColor,
         fillOpacity: isHovered ? 0.35 : 0.2,
@@ -9171,22 +9192,40 @@ const ConsolidatedDashboardView = memo(
               No Exit (Yield)
             </button>
           </div>
-          <div className="flex items-center justify-between pt-3 mt-1 border-t border-[#D8D8D8]">
-            <span className="text-[10px] font-bold text-[#4C4A4B] flex items-center gap-1.5">
-              <Landmark size={14} className="text-[#9B8B70]" /> Bank Debt
-              Financing (PropCo Level)
-            </span>
-            <label className="relative inline-flex items-center cursor-pointer">
-              <input
-                type="checkbox"
-                className="sr-only peer"
-                checked={propCoAssumptions?.includeFinancing || false}
-                onChange={(e) =>
-                  handlePropCoChange("includeFinancing", e.target.checked)
-                }
-              />
-              <div className="w-8 h-4 bg-[#D8D8D8] peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-[#D8D8D8] after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-[#1C6048]"></div>
-            </label>
+          <div className="flex flex-col gap-3 pt-3 mt-1 border-t border-[#D8D8D8]">
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] font-bold text-[#4C4A4B] flex items-center gap-1.5">
+                <Landmark size={14} className="text-[#9B8B70]" /> Bank Debt
+                Financing (PropCo Level)
+              </span>
+              <label className="relative inline-flex items-center cursor-pointer">
+                <input
+                  type="checkbox"
+                  className="sr-only peer"
+                  checked={propCoAssumptions?.includeFinancing || false}
+                  onChange={(e) =>
+                    handlePropCoChange("includeFinancing", e.target.checked)
+                  }
+                />
+                <div className="w-8 h-4 bg-[#D8D8D8] peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-[#D8D8D8] after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-[#1C6048]"></div>
+              </label>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] font-bold text-[#4C4A4B] flex items-center gap-1.5">
+                <Map size={14} className="text-[#9B8B70]" /> Include Land Cost (PropCo Level)
+              </span>
+              <label className="relative inline-flex items-center cursor-pointer">
+                <input
+                  type="checkbox"
+                  className="sr-only peer"
+                  checked={propCoAssumptions?.includeLand ?? true}
+                  onChange={(e) =>
+                    handlePropCoChange("includeLand", e.target.checked)
+                  }
+                />
+                <div className="w-8 h-4 bg-[#D8D8D8] peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-[#D8D8D8] after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-[#1C6048]"></div>
+              </label>
+            </div>
           </div>
         </div>
 
