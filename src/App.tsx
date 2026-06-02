@@ -2153,13 +2153,16 @@ const useTooltip = (tooltip) => {
   return { tooltipState, setTooltipState };
 };
 
-const KPITooltipIcon = memo(({ tooltip, tooltipState, setTooltipState }) => {
+const KPITooltipIcon = memo(({ tooltip, tooltipState, setTooltipState, align = "right" }) => {
   if (!tooltip) return null;
   const showTooltip = tooltipState !== false;
 
+  const tooltipDesc = typeof tooltip === 'string' ? tooltip : tooltip.desc;
+  const tooltipFormula = typeof tooltip === 'string' ? null : tooltip.formula;
+
   return (
     <div 
-      className="relative ml-auto"
+      className="relative ml-auto shrink-0"
       onMouseEnter={() => { if (tooltipState !== "click") setTooltipState("hover"); }}
       onMouseLeave={() => { if (tooltipState !== "click") setTooltipState(false); }}
     >
@@ -2187,19 +2190,23 @@ const KPITooltipIcon = memo(({ tooltip, tooltipState, setTooltipState }) => {
             onClick={(e) => { e.stopPropagation(); setTooltipState(false); }} 
           />
           <div 
-            className="absolute top-full right-0 sm:-right-2 mt-2 w-[240px] p-4 bg-[#1E2F31] text-white rounded-xl shadow-[0_8px_30px_rgba(30,47,49,0.9)] border border-[#1C6048]/40 z-[100] text-xs font-medium leading-relaxed normal-case tracking-normal animate-in fade-in slide-in-from-top-2 duration-200"
+            className={`absolute top-full mt-2 w-[240px] p-4 bg-[#1E2F31] text-white rounded-xl shadow-[0_8px_30px_rgba(30,47,49,0.9)] border border-[#1C6048]/40 z-[100] text-xs font-medium leading-relaxed normal-case tracking-normal animate-in fade-in slide-in-from-top-2 duration-200 ${
+              align === 'left' ? 'left-0 sm:-left-2' : 'right-0 sm:-right-2'
+            }`}
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="absolute -top-1.5 right-3 w-3 h-3 bg-[#1E2F31] rounded-sm transform rotate-45 border-t border-l border-[#1C6048]/40"></div>
+            <div className={`absolute -top-1.5 w-3 h-3 bg-[#1E2F31] rounded-sm transform rotate-45 border-t border-l border-[#1C6048]/40 ${
+              align === 'left' ? 'left-3' : 'right-3'
+            }`}></div>
             <div className="relative z-10">
               <div className="font-bold text-white mb-2 flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-[#99B6AA]">
                 <Info size={12} className="text-[#99B6AA]" /> Metric Insight
               </div>
-              <p className="text-white/90 text-[11px] leading-relaxed mb-3">{tooltip.desc}</p>
-              {tooltip.formula && (
+              <div className="text-white/90 text-[11px] leading-relaxed mb-3 whitespace-pre-wrap">{tooltipDesc}</div>
+              {tooltipFormula && (
                 <div className="bg-black/20 p-2 rounded-lg border border-white/10 font-mono text-[9px] text-[#48B084]">
                   <span className="text-white/40 block text-[8px] uppercase font-sans font-bold tracking-widest mb-1 shadow-sm">Formula</span>
-                  {tooltip.formula}
+                  {tooltipFormula}
                 </div>
               )}
             </div>
@@ -2207,6 +2214,18 @@ const KPITooltipIcon = memo(({ tooltip, tooltipState, setTooltipState }) => {
         </>
       )}
     </div>
+  );
+});
+
+const StatefulTooltipIcon = memo(({ tooltip, align = "right" }) => {
+  const { tooltipState, setTooltipState } = useTooltip(tooltip);
+  return (
+    <KPITooltipIcon 
+      tooltip={tooltip} 
+      tooltipState={tooltipState} 
+      setTooltipState={setTooltipState} 
+      align={align} 
+    />
   );
 });
 
@@ -2354,22 +2373,28 @@ const FormattedInput = memo(
   },
 );
 
-const AssumptionRow = memo(({ label, val, set, unit, isLocked }) => (
-  <div className="flex justify-between items-center group py-1 border-b border-[#D8D8D8] last:border-0 hover:bg-[#EFEBE7] px-1 rounded transition-colors">
-    <label className="text-[10px] text-[#4C4A4B] font-bold">{label}</label>
-    <div className="flex items-center gap-1">
-      <FormattedInput
-        disabled={isLocked}
-        val={val}
-        set={set}
-        className="w-16 p-1 text-right text-[10px] border border-[#D8D8D8] rounded focus:ring-2 focus:ring-[#1C6048] outline-none font-black text-[#1E2F31] bg-white"
-      />
-      <span className="text-[8px] text-[#4C4A4B] font-black uppercase w-4">
-        {unit}
-      </span>
+const AssumptionRow = memo(({ label, val, set, unit, isLocked, tooltip }) => {
+  const { tooltipState, setTooltipState } = useTooltip(tooltip);
+  return (
+    <div className="flex justify-between items-center group py-1 border-b border-[#D8D8D8] last:border-0 hover:bg-[#EFEBE7] px-1 rounded transition-colors relative">
+      <div className="flex items-center gap-1.5">
+        <label className="text-[10px] text-[#4C4A4B] font-bold">{label}</label>
+        <KPITooltipIcon tooltip={tooltip} tooltipState={tooltipState} setTooltipState={setTooltipState} align="left" />
+      </div>
+      <div className="flex items-center gap-1">
+        <FormattedInput
+          disabled={isLocked}
+          val={val}
+          set={set}
+          className="w-16 p-1 text-right text-[10px] border border-[#D8D8D8] rounded focus:ring-2 focus:ring-[#1C6048] outline-none font-black text-[#1E2F31] bg-white"
+        />
+        <span className="text-[8px] text-[#4C4A4B] font-black uppercase w-4">
+          {unit}
+        </span>
+      </div>
     </div>
-  </div>
-));
+  );
+});
 
 const AssumptionDepreciationGroup = memo(
   ({ label, methodVal, lifeVal, setMethod, setLife, isLocked }) => (
@@ -4239,7 +4264,7 @@ const InteractiveDemographicMap = memo(() => {
     targetRegions.filter((r) => !r.defaultOff).map((r) => r.id),
   );
   const [showRegionLabels, setShowRegionLabels] = useState(false);
-  const [showTollRoads, setShowTollRoads] = useState(false);
+  const [showTollRoads, setShowTollRoads] = useState(true);
   const [activePOIs, setActivePOIs] = useState(mapLocations.map((l) => l.id));
   const [loadingStatus, setLoadingStatus] = useState({
     active: true,
@@ -4401,14 +4426,56 @@ const InteractiveDemographicMap = memo(() => {
                 lines.push(element.geometry.map(p => [p.lat, p.lon]));
               }
             });
+            const L = window.L;
+            const tollGroup = L.layerGroup();
             
-            tollRoadLayerRef.current = L.polyline(lines, {
+            L.polyline(lines, {
               color: "#1E3A8A",
               weight: 3,
               opacity: 0.6,
               dashArray: "5, 5",
               pane: "ringsPane"
-            }).addTo(mapRef.current);
+            }).addTo(tollGroup);
+
+            // Add nearest toll gate to Vasanta Hospital marker
+            const tollIconHtml = `
+              <div style="width: 15px; height: 15px; display: flex; align-items: center; justify-content: center; filter: drop-shadow(0px 1px 2px rgba(0,0,0,0.3));">
+                <svg viewBox="0 0 100 90" width="100%" height="100%">
+                  <!-- Hexagon border and background -->
+                  <polygon points="25,2 75,2 98,45 75,88 25,88 2,45" fill="white" stroke="black" stroke-width="4" stroke-linejoin="round"/>
+                  <!-- Red header -->
+                  <polygon points="23,4 77,4 83,18 17,18" fill="red" />
+                  <line x1="17" y1="18" x2="83" y2="18" stroke="black" stroke-width="4"/>
+                  <!-- Text -->
+                  <text x="50" y="14" fill="white" font-size="11" font-family="sans-serif" font-weight="900" text-anchor="middle" letter-spacing="0.5">TOL</text>
+                  <text x="50" y="70" fill="black" font-size="52" font-family="sans-serif" font-weight="900" text-anchor="middle">1</text>
+                </svg>
+              </div>
+            `;
+            const customIcon = L.divIcon({
+              html: tollIconHtml,
+              className: "",
+              iconSize: [15, 15],
+              iconAnchor: [7.5, 7.5]
+            });
+            const marker = L.marker([-6.152, 106.727], {
+               pane: "labelsPane",
+               icon: customIcon
+            });
+            
+            marker.bindTooltip(`
+                <div style="background: white; border: 1px solid #EFEBE7; padding: 6px 8px; border-radius: 4px; box-shadow: 0 2px 6px rgba(0,0,0,0.15); font-family: sans-serif; font-size: 10px; line-height: 1.3;">
+                    <div style="font-weight: bold; color: #1E2F31; margin-bottom: 2px;">Rawa Buaya Toll Gate</div>
+                    <div style="color: #4C4A4B;">JORR W1 KM4</div>
+                </div>
+            `, {
+               direction: "top",
+               offset: [0, -8],
+               className: "custom-poi-tooltip"
+            });
+            marker.addTo(tollGroup);
+            
+            tollRoadLayerRef.current = tollGroup.addTo(mapRef.current);
             setLoadingStatus({ active: false, text: "", isError: false });
           }).catch(e => {
             console.error("Failed to load toll roads", e);
@@ -4424,7 +4491,7 @@ const InteractiveDemographicMap = memo(() => {
         mapRef.current.removeLayer(tollRoadLayerRef.current);
       }
     }
-  }, [showTollRoads]);
+  }, [showTollRoads, isMapReady]);
 
   const setupLayerInteractions = (layer, region, mapInstance) => {
     let lastLatLng = null;
@@ -6433,18 +6500,9 @@ const StudyView = memo(({ isPresenting, info }) => {
                       Bridging the gap between diagnosis and LINAC therapy
                     </p>
                   </div>
-                  <div className="relative group mt-0.5">
-                    <button className="text-[#99B6AA] hover:text-[#1C6048] transition-colors">
-                      <Info size={16} />
-                    </button>
-                    <div className="absolute top-full right-0 md:left-0 md:right-auto mt-2 w-[280px] md:w-72 bg-[#1E2F31] text-white text-[10px] p-3 rounded-xl opacity-0 pointer-events-none group-hover:opacity-100 transition-all z-50 shadow-xl border border-white/10 text-left">
-                      <strong className="text-white block mb-1 pb-1 border-b border-white/20">Sources & Data Validation</strong>
-                      <ul className="text-white/80 leading-relaxed font-medium space-y-1.5 mt-2 list-none m-0 p-0">
-                        <li>• <strong className="text-[#E8EFEA]">LINAC Waitlist (Kemenkes):</strong> Standard public hospital LINAC routing queues routinely average 3-6 months according to Ministry of Health.</li>
-                        <li>• <strong className="text-[#E8EFEA]">PET-CT Deficit (WHO):</strong> WHO recommends 1 PET-CT device per 1 million people; Indonesia operates far below this, driving multi-month nationwide staging delays.</li>
-                      </ul>
-                    </div>
-                  </div>
+                  <StatefulTooltipIcon tooltip="Sources & Data Validation
+• LINAC Waitlist (Kemenkes): Standard public hospital LINAC routing queues routinely average 3-6 months.
+• PET-CT Deficit (WHO): WHO recommends 1 PET-CT device per 1 million people; Indonesia operates far below this, driving multi-month nationwide staging delays." align="left" />
                 </div>
               </div>
             </div>
@@ -6496,15 +6554,8 @@ const StudyView = memo(({ isPresenting, info }) => {
                     Isolating self-pay and private insurance lives (SES A & B).
                   </p>
                 </div>
-                <div className="relative group mt-0.5">
-                  <button className="text-[#9B8B70] hover:text-[#1E2F31] transition-colors">
-                    <Info size={16} />
-                  </button>
-                  <div className="absolute top-full right-0 md:left-1/2 md:-translate-x-1/2 mt-2 w-[280px] md:w-64 bg-[#1E2F31] text-white text-[10px] p-3 rounded-xl opacity-0 pointer-events-none group-hover:opacity-100 transition-all z-50 shadow-xl border border-white/10 text-left">
-                    <strong className="text-white block mb-1 pb-1 border-b border-white/20">Sources & Validation</strong>
-                    <p className="text-white/80 leading-relaxed font-medium mt-2">SES A&B penetration (approx. 18-20% in Greater Jakarta) is estimated by mapping BPS 2024 regional expenditure demographics against Nielsen's SES classification matrix. The high regional GDP per capita strongly correlates with deeper pools of commercial insurance adoption.</p>
-                  </div>
-                </div>
+                <StatefulTooltipIcon tooltip="Sources & Validation
+SES A&B penetration (approx. 18-20% in Greater Jakarta) is estimated by mapping BPS 2024 regional expenditure demographics against Nielsen's SES classification matrix. The high regional GDP per capita strongly correlates with deeper pools of commercial insurance adoption." align="right" />
               </div>
             </div>
 
@@ -9688,6 +9739,7 @@ const OpCoSettingsView = memo(
             set={(v) => onChange("opIpRatio", v)}
             unit="X"
             isLocked={isLocked}
+            tooltip="Ratio of ambulatory/outpatient visits per single inpatient admission. Oncology centers typically experience high ratios (30:1 - 50:1) compared to general hospitals (10:1 - 20:1) due to repetitive daily or weekly cycles of outpatient radiotherapy (LINAC) and chemotherapy sessions."
           />
         </div>
         <div className="space-y-4">
