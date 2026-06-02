@@ -10533,34 +10533,58 @@ const PropCoSettingsView = memo(
                   {assumptions.includeMedEq ? (
                     <>
                       <tr className="border-b border-[#EFEBE7] hover:bg-[#F9F8F6]">
-                        <td className="px-3 py-2 font-bold text-[#4C4A4B]">Advanced Imaging (MRI & CT Scanners)</td>
+                        <td className="px-3 py-2 font-bold text-[#4C4A4B]">Diagnostic Imaging (MRI & CT)</td>
                         <td className="px-3 py-2 text-center text-[#4C4A4B]">2</td>
-                        <td className="px-3 py-2 text-right text-[#4C4A4B]">20.0</td>
-                        <td className="px-3 py-2 text-right text-[#4C4A4B]">40.0</td>
+                        <td className="px-3 py-2 text-right text-[#4C4A4B]">12.5</td>
+                        <td className="px-3 py-2 text-right text-[#4C4A4B]">25.0</td>
                       </tr>
                       <tr className="border-b border-[#EFEBE7] hover:bg-[#F9F8F6]">
-                        <td className="px-3 py-2 font-bold text-[#4C4A4B]">Cath Lab & Angiography Systems</td>
+                        <td className="px-3 py-2 font-bold text-[#4C4A4B]">PET-CT Scanner (Oncology Staging)</td>
+                        <td className="px-3 py-2 text-center text-[#4C4A4B]">1</td>
+                        <td className="px-3 py-2 text-right text-[#4C4A4B]">20.0</td>
+                        <td className="px-3 py-2 text-right text-[#4C4A4B]">20.0</td>
+                      </tr>
+                      <tr className="border-b border-[#EFEBE7] hover:bg-[#F9F8F6]">
+                        <td className="px-3 py-2 font-bold text-[#4C4A4B]">LINAC (Radiotherapy Systems)</td>
                         <td className="px-3 py-2 text-center text-[#4C4A4B]">1</td>
                         <td className="px-3 py-2 text-right text-[#4C4A4B]">25.0</td>
                         <td className="px-3 py-2 text-right text-[#4C4A4B]">25.0</td>
                       </tr>
                       <tr className="border-b border-[#EFEBE7] hover:bg-[#F9F8F6]">
+                        <td className="px-3 py-2 font-bold text-[#4C4A4B]">Brachytherapy & Dosimetry QA</td>
+                        <td className="px-3 py-2 text-center text-[#4C4A4B]">1</td>
+                        <td className="px-3 py-2 text-right text-[#4C4A4B]">10.0</td>
+                        <td className="px-3 py-2 text-right text-[#4C4A4B]">10.0</td>
+                      </tr>
+                      <tr className="border-b border-[#EFEBE7] hover:bg-[#F9F8F6]">
+                        <td className="px-3 py-2 font-bold text-[#4C4A4B]">Cath Lab & Angiography Systems</td>
+                        <td className="px-3 py-2 text-center text-[#4C4A4B]">1</td>
+                        <td className="px-3 py-2 text-right text-[#4C4A4B]">22.0</td>
+                        <td className="px-3 py-2 text-right text-[#4C4A4B]">22.0</td>
+                      </tr>
+                      <tr className="border-b border-[#EFEBE7] hover:bg-[#F9F8F6]">
                         <td className="px-3 py-2 font-bold text-[#4C4A4B]">Operating Room (OR) Subsystems</td>
-                        <td className="px-3 py-2 text-center text-[#4C4A4B]">8</td>
-                        <td className="px-3 py-2 text-right text-[#4C4A4B]">5.0</td>
-                        <td className="px-3 py-2 text-right text-[#4C4A4B]">40.0</td>
+                        <td className="px-3 py-2 text-center text-[#4C4A4B]">6</td>
+                        <td className="px-3 py-2 text-right text-[#4C4A4B]">3.0</td>
+                        <td className="px-3 py-2 text-right text-[#4C4A4B]">18.0</td>
                       </tr>
                       <tr className="border-b border-[#EFEBE7] hover:bg-[#F9F8F6]">
                         <td className="px-3 py-2 font-bold text-[#4C4A4B]">Radiology (X-Ray / USG / Mammo)</td>
-                        <td className="px-3 py-2 text-center text-[#4C4A4B]">10</td>
-                        <td className="px-3 py-2 text-right text-[#4C4A4B]">1.5</td>
-                        <td className="px-3 py-2 text-right text-[#4C4A4B]">15.0</td>
+                        <td className="px-3 py-2 text-center text-[#4C4A4B]">8</td>
+                        <td className="px-3 py-2 text-right text-[#4C4A4B]">1.25</td>
+                        <td className="px-3 py-2 text-right text-[#4C4A4B]">10.0</td>
                       </tr>
                       <tr className="border-b border-[#EFEBE7] hover:bg-[#F9F8F6]">
-                        <td className="px-3 py-2 font-bold text-[#4C4A4B]">Specialized Procurement & Contingency</td>
-                        <td className="px-3 py-2 text-center text-[#4C4A4B]">-</td>
-                        <td className="px-3 py-2 text-right text-[#4C4A4B]">-</td>
-                        <td className="px-3 py-2 text-right text-[#4C4A4B]">30.0</td>
+                        <td className="px-3 py-2 font-bold text-[#4C4A4B]">Chemo Prep & General Medical</td>
+                        <td className="px-3 py-2 text-center text-[#4C4A4B]">Lot</td>
+                        <td className="px-3 py-2 text-right text-[#4C4A4B]">12.0</td>
+                        <td className="px-3 py-2 text-right text-[#4C4A4B]">12.0</td>
+                      </tr>
+                      <tr className="border-b border-[#EFEBE7] hover:bg-[#F9F8F6]">
+                        <td className="px-3 py-2 font-bold text-[#4C4A4B]">Health Information Systems & IT</td>
+                        <td className="px-3 py-2 text-center text-[#4C4A4B]">Lot</td>
+                        <td className="px-3 py-2 text-right text-[#4C4A4B]">8.0</td>
+                        <td className="px-3 py-2 text-right text-[#4C4A4B]">8.0</td>
                       </tr>
                       <tr className="bg-[#EFEBE7]/50 font-black relative group">
                         <td className="px-3 py-3 text-[#1C6048] uppercase tracking-widest text-xs" colSpan={3}>
@@ -11312,12 +11336,15 @@ const MasterTimelineView = memo(({ isPresenting }) => {
 
   return (
     <div className="w-full text-[#1E2F31] flex flex-col gap-6 relative animate-in fade-in duration-500 pb-12">
-      {/* Floating Glassmorphism Overlay */}
-      <div className="absolute top-[30vh] left-1/2 -translate-x-1/2 z-[100] bg-white/70 backdrop-blur-xl border border-white/60 shadow-[0_20px_50px_-12px_rgba(30,47,49,0.2)] px-6 py-4 rounded-2xl flex items-center gap-4 tooltip-animation pointer-events-none w-[90%] sm:w-auto text-center justify-center">
-        <Info className="text-[#1C6048] shrink-0" size={24} />
-        <p className="text-xs sm:text-sm font-bold text-[#1E2F31] sm:whitespace-nowrap uppercase tracking-wider">
-          Date and items have not been filled out or updated yet
-        </p>
+      {/* Diagonal Watermark Overlay */}
+      <div className="absolute inset-0 z-[100] flex items-center justify-center pointer-events-none overflow-hidden rounded-3xl">
+        <div className="transform -rotate-[20deg] px-8 md:scale-100 scale-75 origin-center w-full">
+          <p className="text-xl sm:text-2xl md:text-4xl lg:text-5xl font-black text-[#1E2F31]/10 uppercase tracking-widest text-center leading-tight select-none drop-shadow-sm">
+            Date and items have not been
+            <br />
+            filled out or updated yet
+          </p>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-12 gap-6 items-center relative z-10 bg-white p-4 rounded-2xl border border-[#D8D8D8] shadow-sm">
