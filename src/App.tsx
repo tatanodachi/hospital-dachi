@@ -2264,17 +2264,25 @@ const KPICard = memo(({ title, value, icon, color, subtitle, tooltip }) => {
   );
 });
 
-const MiniKPICard = memo(({ title, value, subtitle }) => (
-  <div className="p-3 bg-[#EFEBE7] rounded-xl border border-[#D8D8D8]">
-    <p className="text-[9px] text-[#4C4A4B] font-bold uppercase mb-1">
-      {title}
-    </p>
-    <p className="text-lg font-black text-[#1E2F31]">{value}</p>
-    <p className="text-[8px] text-[#99B6AA] font-bold uppercase mt-1">
-      {subtitle}
-    </p>
-  </div>
-));
+const MiniKPICard = memo(({ title, value, subtitle, tooltip }) => {
+  const { tooltipState, setTooltipState } = useTooltip(tooltip);
+  const zClass = tooltipState === 'click' ? 'z-[110]' : (tooltipState === 'hover' ? 'z-[100]' : 'z-10 hover:z-[60]');
+
+  return (
+    <div className={`p-3 bg-[#EFEBE7] rounded-xl border border-[#D8D8D8] relative group ${zClass}`}>
+      <div className="flex items-center justify-between mb-1">
+        <p className="text-[9px] text-[#4C4A4B] font-bold uppercase">
+          {title}
+        </p>
+        <KPITooltipIcon tooltip={tooltip} tooltipState={tooltipState} setTooltipState={setTooltipState} />
+      </div>
+      <p className="text-lg font-black text-[#1E2F31]">{value}</p>
+      <p className="text-[8px] text-[#99B6AA] font-bold uppercase mt-1">
+        {subtitle}
+      </p>
+    </div>
+  );
+});
 
 const DualKPICard = memo(
   ({ title1, value1, color1, tooltip1, title2, value2, color2, tooltip2, icon }) => {
@@ -2658,6 +2666,7 @@ const TableRow = memo(
     emerald,
     crossover,
     isIndent,
+    tooltip,
   }) => {
     let baseColorClass = "bg-white font-medium text-[#4C4A4B]";
     if (highlight) {
@@ -2667,12 +2676,17 @@ const TableRow = memo(
       else baseColorClass = "bg-[#EFEBE7] font-bold text-[#1E2F31]";
     }
 
-    let firstColClass = `px-4 py-2 sticky left-0 z-10 border-r border-b border-[#D8D8D8] whitespace-nowrap transition-colors shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)] ${baseColorClass} ${isIndent ? "pl-8 text-[10px]" : "text-[11px]"}`;
-    let totalColClass = `px-3 py-2 text-right font-bold font-mono border-l border-b border-[#D8D8D8] sticky right-0 z-10 shadow-[-2px_0_5px_-2px_rgba(0,0,0,0.1)] ${baseColorClass} ${!highlight ? "group-hover:bg-[#F9F8F6]" : ""}`;
+    let firstColClass = `px-4 py-2 sticky left-0 z-[40] border-r border-b border-[#D8D8D8] whitespace-nowrap transition-colors shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)] ${baseColorClass} ${isIndent ? "pl-8 text-[10px]" : "text-[11px]"}`;
+    let totalColClass = `px-3 py-2 text-right font-bold font-mono border-l border-b border-[#D8D8D8] sticky right-0 z-[40] shadow-[-2px_0_5px_-2px_rgba(0,0,0,0.1)] ${baseColorClass} ${!highlight ? "group-hover:bg-[#F9F8F6]" : ""}`;
 
     return (
       <tr className={`group ${highlight ? "" : "hover:bg-[#F9F8F6]"}`}>
-        <td className={firstColClass}>{label}</td>
+        <td className={firstColClass}>
+          <div className="flex items-center justify-between gap-2">
+            <span>{label}</span>
+            {tooltip && <StatefulTooltipIcon tooltip={tooltip} align="right" />}
+          </div>
+        </td>
         {data.map((d, i) => {
           const val = d[dk] || 0;
           const isCrossover =
@@ -8774,11 +8788,13 @@ const PropCoDashboardView = memo(
               title="Avg DSCR"
               value={`${formatNumber(data.metrics.avgDscr, 2)}x`}
               subtitle="Debt Coverage"
+              tooltip="Debt Service Coverage Ratio (EBITDA / Total Debt Service). Measures the ability to pay debt obligations. Average over the loan tenor. Benchmark: > 1.25x is standard."
             />
             <MiniKPICard
               title="Min DSCR"
               value={`${formatNumber(data.metrics.minDscr, 2)}x`}
               subtitle="Lowest Coverage"
+              tooltip="The lowest DSCR value over the loan tenor. Benchmark: Must remain > 1.25x to satisfy standard covenants. < 1.0x indicates projected default."
             />
             <MiniKPICard
               title="Cost per Bed"
@@ -9136,6 +9152,7 @@ const PropCoCascadeView = memo(({ data, onExport, viewResolution, setViewResolut
                 label="DSCR (Coverage Ratio)"
                 data={columns}
                 dk="dscr"
+                tooltip="Debt Service Coverage Ratio: Cash Available for Debt Service (EBITDA) divided by Total Debt Service (Principal + Interest). Benchmark: > 1.25x."
               />
               <TableRow
                 label="Depreciation (D&A)"
@@ -9298,36 +9315,77 @@ const ConsolidatedDashboardView = memo(
             </p>
           </div>
           <div className="flex flex-wrap gap-1.5 mt-1">
-            <button
-              onClick={() => setHoldCoScenario("manual")}
-              className={`flex-1 min-w-[100px] px-2 py-1.5 rounded-lg text-[10px] font-bold transition-all ${holdCoScenario === "manual" ? "bg-white shadow-sm border border-[#D8D8D8] text-[#1E2F31]" : "bg-[#EFEBE7] text-[#4C4A4B] hover:text-[#1E2F31]"}`}
-            >
-              Manual (Settings)
-            </button>
-            <button
-              onClick={() => setHoldCoScenario("yr10")}
-              className={`flex-1 min-w-[100px] px-2 py-1.5 rounded-lg text-[10px] font-bold transition-all ${holdCoScenario === "yr10" ? "bg-[#1E2F31] shadow-sm border border-[#1E2F31] text-white" : "bg-[#EFEBE7] text-[#4C4A4B] hover:text-[#1E2F31]"}`}
-            >
-              Exit in Yr 10
-            </button>
-            <button
-              onClick={() => setHoldCoScenario("breakeven")}
-              className={`flex-1 min-w-[100px] px-2 py-1.5 rounded-lg text-[10px] font-bold transition-all ${holdCoScenario === "breakeven" ? "bg-[#1C6048] shadow-sm border border-[#1C6048] text-white" : "bg-[#EFEBE7] text-[#4C4A4B] hover:text-[#1E2F31]"}`}
-            >
-              Exit at Breakeven
-            </button>
-            <button
-              onClick={() => setHoldCoScenario("debt_free")}
-              className={`flex-1 min-w-[100px] px-2 py-1.5 rounded-lg text-[10px] font-bold transition-all ${holdCoScenario === "debt_free" ? "bg-[#9B8B70] shadow-sm border border-[#9B8B70] text-white" : "bg-[#EFEBE7] text-[#4C4A4B] hover:text-[#1E2F31]"}`}
-            >
-              Exit Post-Debt
-            </button>
-            <button
-              onClick={() => setHoldCoScenario("none")}
-              className={`flex-1 min-w-[100px] px-2 py-1.5 rounded-lg text-[10px] font-bold transition-all ${holdCoScenario === "none" ? "bg-white shadow-sm border border-[#1C6048] text-[#1C6048]" : "bg-[#EFEBE7] text-[#4C4A4B] hover:text-[#1E2F31]"}`}
-            >
-              No Exit (Yield)
-            </button>
+            <div className="flex-1 min-w-[100px] relative group flex">
+              <button
+                onClick={() => setHoldCoScenario("manual")}
+                className={`w-full px-2 py-1.5 rounded-lg text-[10px] font-bold transition-all ${holdCoScenario === "manual" ? "bg-white shadow-sm border border-[#D8D8D8] text-[#1E2F31]" : "bg-[#EFEBE7] text-[#4C4A4B] hover:text-[#1E2F31]"}`}
+              >
+                Manual (Settings)
+              </button>
+              <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-max max-w-[180px] whitespace-normal px-2 py-1.5 bg-[#1E2F31] text-white text-[10px] leading-tight font-medium rounded shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-50 pointer-events-none text-center">
+                Uses the exit settings defined in the project assumptions
+                <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-[#1E2F31]"></div>
+              </div>
+            </div>
+
+            <div className="flex-1 min-w-[100px] relative group flex">
+              <button
+                onClick={() => setHoldCoScenario("yr10")}
+                className={`w-full px-2 py-1.5 rounded-lg text-[10px] font-bold transition-all ${holdCoScenario === "yr10" ? "bg-[#1E2F31] shadow-sm border border-[#1E2F31] text-white" : "bg-[#EFEBE7] text-[#4C4A4B] hover:text-[#1E2F31]"}`}
+              >
+                Exit in Yr 10
+              </button>
+              <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-max max-w-[180px] whitespace-normal px-2 py-1.5 bg-[#1E2F31] text-white text-[10px] leading-tight font-medium rounded shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-50 pointer-events-none text-center">
+                Forces the exit to occur exactly at the end of Year 10
+                <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-[#1E2F31]"></div>
+              </div>
+            </div>
+
+            <div className="flex-1 min-w-[100px] relative group flex">
+              <button
+                onClick={() => setHoldCoScenario("breakeven")}
+                className={`w-full px-2 py-1.5 rounded-lg text-[10px] font-bold transition-all ${holdCoScenario === "breakeven" ? "bg-[#1C6048] shadow-sm border border-[#1C6048] text-white" : "bg-[#EFEBE7] text-[#4C4A4B] hover:text-[#1E2F31]"}`}
+              >
+                Exit at Breakeven
+              </button>
+              <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-max max-w-[180px] whitespace-normal px-2 py-1.5 bg-[#1E2F31] text-white text-[10px] leading-tight font-medium rounded shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-50 pointer-events-none text-center">
+                Exits the year after the project achieves operational breakeven
+                <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-[#1E2F31]"></div>
+              </div>
+            </div>
+
+            <div className="flex-1 min-w-[100px] relative group flex">
+              <button
+                onClick={() => setHoldCoScenario("debt_free")}
+                disabled={!propCoAssumptions.includeFinancing}
+                className={`w-full px-2 py-1.5 rounded-lg text-[10px] font-bold transition-all ${
+                  !propCoAssumptions.includeFinancing 
+                    ? "bg-[#F3F4F6] text-[#D1D5DB] cursor-not-allowed border border-[#E5E7EB]" 
+                    : holdCoScenario === "debt_free" 
+                      ? "bg-[#9B8B70] shadow-sm border border-[#9B8B70] text-white" 
+                      : "bg-[#EFEBE7] text-[#4C4A4B] hover:text-[#1E2F31]"
+                }`}
+              >
+                Exit Post-Debt
+              </button>
+              <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-max max-w-[180px] whitespace-normal px-2 py-1.5 bg-[#1E2F31] text-white text-[10px] leading-tight font-medium rounded shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-50 pointer-events-none text-center">
+                {!propCoAssumptions.includeFinancing ? "Requires debt financing to be enabled" : "Exits only after operational breakeven is reached and all debt is fully paid off"}
+                <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-[#1E2F31]"></div>
+              </div>
+            </div>
+
+            <div className="flex-1 min-w-[100px] relative group flex">
+              <button
+                onClick={() => setHoldCoScenario("none")}
+                className={`w-full px-2 py-1.5 rounded-lg text-[10px] font-bold transition-all ${holdCoScenario === "none" ? "bg-white shadow-sm border border-[#1C6048] text-[#1C6048]" : "bg-[#EFEBE7] text-[#4C4A4B] hover:text-[#1E2F31]"}`}
+              >
+                No Exit (Yield)
+              </button>
+              <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-max max-w-[180px] whitespace-normal px-2 py-1.5 bg-[#1E2F31] text-white text-[10px] leading-tight font-medium rounded shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-50 pointer-events-none text-center">
+                No exit is calculated; evaluates pure operating yield over a long period
+                <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-[#1E2F31]"></div>
+              </div>
+            </div>
           </div>
           <div className="flex flex-col gap-3 pt-3 mt-1 border-t border-[#D8D8D8]">
             <div className="flex items-center justify-between">
@@ -9412,6 +9470,7 @@ const ConsolidatedDashboardView = memo(
             icon={<ShieldCheck size={18} />}
             color="amber"
             subtitle="HoldCo Debt Coverage"
+            tooltip="Consolidated Debt Service Coverage Ratio: Cash available distributed to HoldCo divided by HoldCo's share of debt service. Benchmark: > 1.25x is standard."
           />
         </div>
 
@@ -12595,6 +12654,13 @@ export default function App() {
   );
 
   const [holdCoScenario, setHoldCoScenario] = useState("manual");
+
+  useEffect(() => {
+    if (!propCoAssumptions.includeFinancing && holdCoScenario === "debt_free") {
+      setHoldCoScenario("breakeven");
+    }
+  }, [propCoAssumptions.includeFinancing, holdCoScenario]);
+
   // --- PRESENTATION NAVIGATION LOGIC ---
   const presentationSteps = useMemo(
     () => [
@@ -12714,21 +12780,35 @@ export default function App() {
     }
     if (holdCoScenario === "yr10") return { exitYear: 10, projYears: 10 };
     if (holdCoScenario === "debt_free") {
+      const p1 = { exitYear: -1, projYears: 30 };
+      const op1 = runOpCoEngine(opCoAssumptions, p1);
+      const pr1 = runPropCoEngine(propCoAssumptions, op1, p1);
+      const cons1 = runConsolidatedEngine(op1, pr1, opCoAssumptions);
+      
+      const devYears = Math.max(1, Math.ceil((propCoAssumptions.devDurationMonths || 12) / 12));
+      const exactOverallPayback = cons1.metrics.payback; 
+      let beOpYear = exactOverallPayback > 0 ? Math.ceil(exactOverallPayback) - devYears + 1 : 30;
+      
       const y = Math.max(1, propCoAssumptions.loanTenor || 15);
-      return { exitYear: Math.min(y, 30), projYears: Math.min(y, 30) };
+      const targetYear = Math.max(beOpYear, y);
+      return { exitYear: Math.min(targetYear, 30), projYears: Math.min(targetYear, 30) };
     }
     if (holdCoScenario === "breakeven") {
       const p1 = { exitYear: -1, projYears: 30 }; // -1 forces the engine to ignore individual settings and test pure operations
       const op1 = runOpCoEngine(opCoAssumptions, p1);
       const pr1 = runPropCoEngine(propCoAssumptions, op1, p1);
       const cons1 = runConsolidatedEngine(op1, pr1, opCoAssumptions);
-      let beOpYear = 30;
-      for (let j = 0; j < cons1.operatingData.length; j++) {
-        if (cons1.operatingData[j].cumCf >= 0) {
-          beOpYear = j + 1;
-          break;
-        }
-      }
+      
+      const devYears = Math.max(1, Math.ceil((propCoAssumptions.devDurationMonths || 12) / 12));
+      const exactOverallPayback = cons1.metrics.payback; // this is the exact payback year without exit
+      
+      let beOpYear = exactOverallPayback > 0 ? Math.ceil(exactOverallPayback) - devYears : 30;
+      if (beOpYear < 1) beOpYear = 1;
+      
+      // We set the exit to occur at the end of the year AFTER it has already crossed over
+      // so the exit value does not artificially accelerate the payback fraction.
+      beOpYear = beOpYear + 1; 
+      
       return {
         exitYear: Math.min(beOpYear, 30),
         projYears: Math.min(beOpYear, 30),
