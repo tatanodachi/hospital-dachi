@@ -8217,29 +8217,64 @@ const OpCoDashboardView = memo(
   ),
 );
 
-const OpCoCascadeView = memo(({ data, assumptions }) => (
-  <div className="bg-white rounded-2xl shadow-sm border border-[#D8D8D8] overflow-hidden">
-    <div className="p-4 bg-[#EFEBE7] border-b border-[#D8D8D8] flex justify-between items-center">
+const OpCoCascadeView = memo(({ data, assumptions, viewResolution, setViewResolution }) => {
+  const { columns, expandedYears, toggleYear } = useMonthlyColumns(data.annualData, viewResolution);
+  const scrollRef = useRef(null);
+  return (
+  <div className="bg-white rounded-2xl shadow-sm border border-[#D8D8D8] overflow-hidden h-[calc(100vh-320px)] flex flex-col">
+    <div className="p-4 bg-[#EFEBE7] border-b border-[#D8D8D8] flex justify-between items-center shrink-0">
       <h3 className="text-xs font-bold uppercase tracking-widest text-[#1E2F31] flex items-center gap-2">
         <List size={14} /> OpCo Detailed Waterfall
       </h3>
-      <span className="text-[10px] bg-white text-[#4C4A4B] border border-[#D8D8D8] px-2 py-1 rounded font-bold uppercase shadow-sm">
-        IDR Billions
-      </span>
+      <div className="flex items-center gap-2">
+        <div className="flex items-center bg-white p-0.5 rounded-md border border-[#D8D8D8] shadow-sm mr-2">
+          <button
+            onClick={() => setViewResolution('annual')}
+            className={`px-2.5 py-1 text-[9px] font-bold uppercase tracking-wider rounded transition-all ${viewResolution === 'annual' ? 'bg-[#1C6048] text-white' : 'text-[#8A8175] hover:text-[#1E2F31] hover:bg-[#F9F8F6]'}`}
+          >
+            Annual
+          </button>
+          <button
+            onClick={() => setViewResolution('monthly')}
+            className={`px-2.5 py-1 text-[9px] font-bold uppercase tracking-wider rounded transition-all ${viewResolution === 'monthly' ? 'bg-[#9B8B70] text-white' : 'text-[#8A8175] hover:text-[#1E2F31] hover:bg-[#F9F8F6]'}`}
+          >
+            Monthly
+          </button>
+        </div>
+        <button onClick={() => scrollRef.current?.scrollBy({ left: -300, behavior: 'smooth' })} className="p-1 rounded bg-white border border-[#D8D8D8] text-[#1E2F31] shadow-sm hover:bg-[#F9F8F6]">
+          <ChevronLeft size={13} strokeWidth={2.5} />
+        </button>
+        <button onClick={() => scrollRef.current?.scrollBy({ left: 300, behavior: 'smooth' })} className="p-1 rounded bg-white border border-[#D8D8D8] text-[#1E2F31] shadow-sm hover:bg-[#F9F8F6]">
+          <ChevronRight size={13} strokeWidth={2.5} />
+        </button>
+        <span className="text-[10px] bg-white text-[#4C4A4B] border border-[#D8D8D8] px-2 py-1 rounded font-bold uppercase shadow-sm">
+          IDR Billions
+        </span>
+      </div>
     </div>
-    <div className="overflow-auto max-h-[70vh]">
+    <div ref={scrollRef} className="overflow-auto min-h-0 flex-1">
       <table className="w-full text-[11px] text-left border-separate border-spacing-0 min-w-[1000px]">
         <thead className="bg-white font-bold sticky top-0 z-20 shadow-md">
           <tr>
             <th className="px-4 py-3 border-b-2 border-r border-[#D8D8D8] sticky left-0 top-0 bg-white z-30 w-[260px] shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)] text-[#1E2F31]">
               Line Item
             </th>
-            {data.annualData.map((d, i) => (
+            {columns.map((col, i) => (
               <th
                 key={i}
-                className={`px-3 py-3 text-right min-w-[90px] border-b-2 border-r border-[#D8D8D8] ${!d.isOperating ? "bg-[#F9F8F6] text-[#9B8B70]" : "bg-white text-[#1E2F31]"}`}
+                onClick={col.colType === 'year' ? () => toggleYear(col.defaultLabel) : undefined}
+                className={`px-3 py-3 text-right border-b-2 border-r border-[#D8D8D8] ${
+                  col.colType === 'year' ? 'cursor-pointer hover:bg-[#EFEBE7] font-black underline decoration-dashed underline-offset-4 ' : 'font-medium text-[10px] '
+                } ${!col.isOperating ? "bg-[#F9F8F6] text-[#9B8B70]" : "bg-white text-[#1E2F31]"} ${col.isMonth ? 'min-w-[65px] whitespace-nowrap' : 'min-w-[90px]'}`}
               >
-                {String(d.year)}
+                {col.colType === 'year' ? (
+                   <div className="flex items-center justify-end gap-1">
+                     {expandedYears[col.defaultLabel] ? "-" : "+"}
+                     {String(col.defaultLabel)}
+                   </div>
+                ) : (
+                   <div className="text-center w-full">{String(col.defaultLabel)}</div>
+                )}
               </th>
             ))}
             <th className="px-4 py-3 text-right bg-[#EFEBE7] text-[#1E2F31] sticky right-0 top-0 z-30 border-l border-b-2 border-[#D8D8D8] shadow-[-2px_0_5px_-2px_rgba(0,0,0,0.1)]">
@@ -8250,45 +8285,45 @@ const OpCoCascadeView = memo(({ data, assumptions }) => (
         <tbody>
           <TableSection
             title="A. Operating Volume"
-            colSpan={data.annualData.length + 2}
+            colSpan={columns.length + 2}
           />
           <TableRow
             label="Bed Occupancy Rate (BOR)"
-            data={data.annualData}
+            data={columns}
             dk="bor"
           />
           <TableRow
             label="Inpatient Cases"
-            data={data.annualData}
+            data={columns}
             dk="ipCases"
           />
           <TableRow
             label="Outpatient Visits"
-            data={data.annualData}
+            data={columns}
             dk="opVisits"
           />
 
           <TableSection
             title="B. Revenue"
-            colSpan={data.annualData.length + 2}
+            colSpan={columns.length + 2}
           />
           <TableRow
             label="Inpatient Revenue"
-            data={data.annualData}
+            data={columns}
             dk="ipRev"
             total={data.totals.ipRev}
             isIndent
           />
           <TableRow
             label="Outpatient Revenue"
-            data={data.annualData}
+            data={columns}
             dk="opRev"
             total={data.totals.opRev}
             isIndent
           />
           <TableRow
             label="NET REVENUE"
-            data={data.annualData}
+            data={columns}
             dk="totalRev"
             total={data.totals.totalRev}
             highlight
@@ -8296,25 +8331,25 @@ const OpCoCascadeView = memo(({ data, assumptions }) => (
 
           <TableSection
             title="C. Cost of Goods Sold"
-            colSpan={data.annualData.length + 2}
+            colSpan={columns.length + 2}
           />
           <TableRow
             label="Medical Supplies"
-            data={data.annualData}
+            data={columns}
             dk="totalMedSupp"
             total={data.totals.totalMedSupp}
             isIndent
           />
           <TableRow
             label="Doctor Fees"
-            data={data.annualData}
+            data={columns}
             dk="totalDocFee"
             total={data.totals.totalDocFee}
             isIndent
           />
           <TableRow
             label="GROSS PROFIT"
-            data={data.annualData}
+            data={columns}
             dk="grossProfit"
             total={data.totals.grossProfit}
             highlight
@@ -8322,24 +8357,24 @@ const OpCoCascadeView = memo(({ data, assumptions }) => (
 
           <TableSection
             title="D. Operating Expenses"
-            colSpan={data.annualData.length + 2}
+            colSpan={columns.length + 2}
           />
           <TableRow
             label="Staffing & Labor"
-            data={data.annualData}
+            data={columns}
             dk="staffCost"
             isIndent
           />
           <TableRow
             label="Other OpEx"
-            data={data.annualData}
+            data={columns}
             dk="recurringOpex"
             total={data.totals.recurringOpex}
             isIndent
           />
           <TableRow
             label="EBITDAR"
-            data={data.annualData}
+            data={columns}
             dk="ebitdar"
             total={data.totals.ebitdar}
             highlight
@@ -8347,25 +8382,25 @@ const OpCoCascadeView = memo(({ data, assumptions }) => (
 
           <TableSection
             title="E. Rent & Taxes"
-            colSpan={data.annualData.length + 2}
+            colSpan={columns.length + 2}
           />
           <TableRow
             label="Building Rental"
-            data={data.annualData}
+            data={columns}
             dk="rent"
             total={data.totals.rent}
             isIndent
           />
           <TableRow
             label="EBITDA"
-            data={data.annualData}
+            data={columns}
             dk="ebitda"
             total={data.totals.ebitda}
             highlight
           />
           <TableRow
             label="Corporate Tax"
-            data={data.annualData}
+            data={columns}
             dk="tax"
             total={data.totals.tax}
             isIndent
@@ -8373,12 +8408,12 @@ const OpCoCascadeView = memo(({ data, assumptions }) => (
 
           <TableSection
             title="F. Free Cash Flow & Retained Earnings"
-            colSpan={data.annualData.length + 2}
+            colSpan={columns.length + 2}
             type="emerald"
           />
           <TableRow
             label="NET INCOME"
-            data={data.annualData}
+            data={columns}
             dk="netIncome"
             total={data.totals.netIncome}
             highlight
@@ -8386,7 +8421,7 @@ const OpCoCascadeView = memo(({ data, assumptions }) => (
           />
           <TableRow
             label="Cumulative Net Income"
-            data={data.annualData}
+            data={columns}
             dk="cumNI"
             highlight
             crossover
@@ -8395,21 +8430,21 @@ const OpCoCascadeView = memo(({ data, assumptions }) => (
           />
           <TableRow
             label={`Distributable Profit (${assumptions.dividendPayoutRatio ?? 100}%)`}
-            data={data.annualData}
+            data={columns}
             dk="distributableProfit"
             total={data.totals.distributableProfit}
             highlight
           />
           <TableRow
             label={`Retained Earnings (${100 - (assumptions.dividendPayoutRatio ?? 100)}%)`}
-            data={data.annualData}
+            data={columns}
             dk="retainedThisYear"
             total={data.totals.retainedThisYear}
             isIndent
           />
           <TableRow
             label="Cumulative Retained Cash"
-            data={data.annualData}
+            data={columns}
             dk="cumulativeRetainedEarnings"
             highlight
             crossover
@@ -8419,39 +8454,39 @@ const OpCoCascadeView = memo(({ data, assumptions }) => (
 
           <TableSection
             title="G. Terminal Value (Exit)"
-            colSpan={data.annualData.length + 2}
+            colSpan={columns.length + 2}
           />
           <TableRow
             label="OpCo Enterprise Value (EV)"
-            data={data.annualData}
+            data={columns}
             dk="ev"
             total={data.totals.ev}
             highlight
           />
           <TableRow
             label="+ Retained Cash Sweep"
-            data={data.annualData}
+            data={columns}
             dk="cumulativeRetainedEarnings"
             total={data.totals.retainedThisYear}
             isIndent
           />
           <TableRow
             label="Total Exit Equity Value"
-            data={data.annualData}
+            data={columns}
             dk="opCoExit"
             total={data.totals.opCoExit}
             highlight
           />
           <TableRow
             label="Strategic Ptnr Proceeds (51%)"
-            data={data.annualData}
+            data={columns}
             dk="pA_Exit"
             total={data.totals.pA_Exit}
             isIndent
           />
           <TableRow
             label="Vasanta Proceeds (49%)"
-            data={data.annualData}
+            data={columns}
             dk="pB_Exit"
             total={data.totals.pB_Exit}
             isIndent
@@ -8460,7 +8495,8 @@ const OpCoCascadeView = memo(({ data, assumptions }) => (
       </table>
     </div>
   </div>
-));
+  );
+});
 
 const PropCoDashboardView = memo(
   ({
@@ -8851,10 +8887,13 @@ const PropCoDashboardView = memo(
   },
 );
 
-const PropCoCascadeView = memo(({ data, onExport }) => (
+const PropCoCascadeView = memo(({ data, onExport, viewResolution, setViewResolution }) => {
+  const { columns, expandedYears, toggleYear } = useMonthlyColumns(data.annualData, viewResolution);
+  const scrollRef = useRef(null);
+  return (
   <div className="space-y-6">
     <div className="grid grid-cols-1 md:grid-cols-3 gap-6 animate-in slide-in-from-bottom-4 duration-500">
-      <div className="md:col-span-1 bg-white p-5 lg:p-6 rounded-2xl shadow-sm border border-[#D8D8D8] h-fit">
+      <div className="md:col-span-1 bg-white p-5 lg:p-6 rounded-2xl shadow-sm border border-[#D8D8D8] h-[calc(100vh-320px)] overflow-y-auto custom-scrollbar">
         <h3 className="font-bold text-[#1E2F31] mb-4 flex items-center gap-2">
           <Map size={18} className="text-[#1C6048]" /> Development Budget
         </h3>
@@ -8960,30 +8999,60 @@ const PropCoCascadeView = memo(({ data, onExport }) => (
         </div>
       </div>
 
-      <div className="md:col-span-2 bg-white rounded-2xl shadow-sm border border-[#D8D8D8] overflow-hidden flex flex-col">
-        <div className="p-4 bg-[#EFEBE7] border-b border-[#D8D8D8] flex justify-between items-center">
+      <div className="md:col-span-2 bg-white rounded-2xl shadow-sm border border-[#D8D8D8] overflow-hidden h-[calc(100vh-320px)] flex flex-col">
+        <div className="p-4 bg-[#EFEBE7] border-b border-[#D8D8D8] flex justify-between items-center shrink-0">
           <h3 className="text-xs font-bold uppercase tracking-widest text-[#1E2F31] flex items-center gap-2">
             <List size={14} /> PropCo Cash Flow Detail
           </h3>
           <div className="flex items-center gap-2">
+            <div className="flex items-center bg-white p-0.5 rounded-md border border-[#D8D8D8] shadow-sm mr-2">
+              <button
+                onClick={() => setViewResolution('annual')}
+                className={`px-2.5 py-1 text-[9px] font-bold uppercase tracking-wider rounded transition-all ${viewResolution === 'annual' ? 'bg-[#1C6048] text-white' : 'text-[#8A8175] hover:text-[#1E2F31] hover:bg-[#F9F8F6]'}`}
+              >
+                Annual
+              </button>
+              <button
+                onClick={() => setViewResolution('monthly')}
+                className={`px-2.5 py-1 text-[9px] font-bold uppercase tracking-wider rounded transition-all ${viewResolution === 'monthly' ? 'bg-[#9B8B70] text-white' : 'text-[#8A8175] hover:text-[#1E2F31] hover:bg-[#F9F8F6]'}`}
+              >
+                Monthly
+              </button>
+            </div>
+            <button onClick={() => scrollRef.current?.scrollBy({ left: -300, behavior: 'smooth' })} className="p-1 rounded bg-white border border-[#D8D8D8] text-[#1E2F31] shadow-sm hover:bg-[#F9F8F6]">
+              <ChevronLeft size={13} strokeWidth={2.5} />
+            </button>
+            <button onClick={() => scrollRef.current?.scrollBy({ left: 300, behavior: 'smooth' })} className="p-1 rounded bg-white border border-[#D8D8D8] text-[#1E2F31] shadow-sm hover:bg-[#F9F8F6]">
+              <ChevronRight size={13} strokeWidth={2.5} />
+            </button>
             <span className="text-[10px] bg-white text-[#4C4A4B] border border-[#D8D8D8] px-2 py-1 rounded font-bold uppercase shadow-sm">
               IDR Billions
             </span>
           </div>
         </div>
-        <div className="overflow-auto max-h-[70vh] flex-1">
+        <div ref={scrollRef} className="overflow-auto min-h-0 flex-1">
           <table className="w-full text-[11px] text-left border-separate border-spacing-0 min-w-[1000px]">
             <thead className="bg-[#EFEBE7] font-bold sticky top-0 z-20 shadow-md">
               <tr>
                 <th className="px-4 py-3 border-b-2 border-r border-[#D8D8D8] sticky left-0 top-0 bg-[#EFEBE7] z-30 w-[260px] shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)] text-[#1E2F31]">
                   Line Item
                 </th>
-                {data.annualData.map((d, i) => (
+                {columns.map((col, i) => (
                   <th
                     key={i}
-                    className={`px-3 py-3 text-right min-w-[90px] border-b-2 border-r border-[#D8D8D8] bg-[#EFEBE7] ${!d.isOperating ? "text-[#9B8B70]" : "text-[#1E2F31]"}`}
+                    onClick={col.colType === 'year' ? () => toggleYear(col.defaultLabel) : undefined}
+                    className={`px-3 py-3 text-right border-b-2 border-r border-[#D8D8D8] ${
+                      col.colType === 'year' ? 'cursor-pointer hover:bg-white font-black underline decoration-dashed underline-offset-4 ' : 'font-medium text-[10px] '
+                    } bg-[#EFEBE7] ${!col.isOperating ? "text-[#9B8B70]" : "text-[#1E2F31]"} ${col.isMonth ? 'min-w-[65px] whitespace-nowrap' : 'min-w-[90px]'}`}
                   >
-                    {String(d.year)}
+                    {col.colType === 'year' ? (
+                       <div className="flex items-center justify-end gap-1">
+                         {expandedYears[col.defaultLabel] ? "-" : "+"}
+                         {String(col.defaultLabel)}
+                       </div>
+                    ) : (
+                       <div className="text-center w-full">{String(col.defaultLabel)}</div>
+                    )}
                   </th>
                 ))}
                 <th className="px-4 py-3 text-right bg-[#EFEBE7] text-[#1E2F31] sticky right-0 top-0 z-30 border-l border-b-2 border-[#D8D8D8] shadow-[-2px_0_5px_-2px_rgba(0,0,0,0.1)]">
@@ -8994,52 +9063,52 @@ const PropCoCascadeView = memo(({ data, onExport }) => (
             <tbody>
               <TableSection
                 title="A. Operating Revenue & Expense"
-                colSpan={data.annualData.length + 2}
+                colSpan={columns.length + 2}
               />
               <TableRow
                 label="Rental Revenue"
-                data={data.annualData}
+                data={columns}
                 dk="revenue"
                 total={data.totals.revenue}
               />
               <TableRow
                 label="Maintenance OpEx"
-                data={data.annualData}
+                data={columns}
                 dk="maintOpex"
                 total={data.totals.maintOpex}
                 isIndent
               />
               <TableRow
                 label="Property Taxes"
-                data={data.annualData}
+                data={columns}
                 dk="taxOpex"
                 total={data.totals.taxOpex}
                 isIndent
               />
               <TableRow
                 label="Overhead OpEx"
-                data={data.annualData}
+                data={columns}
                 dk="overheadOpex"
                 total={data.totals.overheadOpex}
                 isIndent
               />
               <TableRow
                 label="FF&E Reserve"
-                data={data.annualData}
+                data={columns}
                 dk="ffeReserve"
                 total={data.totals.ffeReserve}
                 isIndent
               />
               <TableRow
                 label="MedEq Lease Expense"
-                data={data.annualData}
+                data={columns}
                 dk="medEqLeaseOpex"
                 total={data.totals.medEqLeaseOpex}
                 isIndent
               />
               <TableRow
                 label="EBITDA (NOI)"
-                data={data.annualData}
+                data={columns}
                 dk="ebitda"
                 total={data.totals.ebitda}
                 highlight
@@ -9047,44 +9116,44 @@ const PropCoCascadeView = memo(({ data, onExport }) => (
 
               <TableSection
                 title="B. Debt Service & Taxes"
-                colSpan={data.annualData.length + 2}
+                colSpan={columns.length + 2}
               />
               <TableRow
                 label="Interest Expense"
-                data={data.annualData}
+                data={columns}
                 dk="interest"
                 total={data.totals.interest}
                 isIndent
               />
               <TableRow
                 label="Principal Repayment"
-                data={data.annualData}
+                data={columns}
                 dk="principal"
                 total={data.totals.principal}
                 isIndent
               />
               <TableRow
                 label="DSCR (Coverage Ratio)"
-                data={data.annualData}
+                data={columns}
                 dk="dscr"
               />
               <TableRow
                 label="Depreciation (D&A)"
-                data={data.annualData}
+                data={columns}
                 dk="dep"
                 total={data.totals.dep}
                 isIndent
               />
               <TableRow
                 label="Earnings Before Tax (EBT)"
-                data={data.annualData}
+                data={columns}
                 dk="ebt"
                 total={data.totals.ebt}
                 highlight
               />
               <TableRow
                 label="Corporate Tax"
-                data={data.annualData}
+                data={columns}
                 dk="corpTax"
                 total={data.totals.corpTax}
                 isIndent
@@ -9092,33 +9161,33 @@ const PropCoCascadeView = memo(({ data, onExport }) => (
 
               <TableSection
                 title="C. Return Metrics"
-                colSpan={data.annualData.length + 2}
+                colSpan={columns.length + 2}
                 type="emerald"
               />
               <TableRow
                 label="NET INCOME"
-                data={data.annualData}
+                data={columns}
                 dk="netIncome"
                 total={data.totals.netIncome}
                 highlight
               />
               <TableRow
                 label="Deferred MedEq Purchase"
-                data={data.annualData}
+                data={columns}
                 dk="deferredCapex"
                 total={data.totals.deferredCapex}
                 isIndent
               />
               <TableRow
                 label="Net Exit Proceeds"
-                data={data.annualData}
+                data={columns}
                 dk="netExitProceeds"
                 total={data.totals.netExitProceeds}
                 highlight
               />
               <TableRow
                 label="FCFE (Levered)"
-                data={data.annualData}
+                data={columns}
                 dk="fcfe"
                 highlight
                 emerald
@@ -9126,7 +9195,7 @@ const PropCoCascadeView = memo(({ data, onExport }) => (
               />
               <TableRow
                 label="Cumulative FCFE"
-                data={data.annualData}
+                data={columns}
                 dk="cumFcfe"
                 highlight
                 crossover
@@ -9136,46 +9205,46 @@ const PropCoCascadeView = memo(({ data, onExport }) => (
 
               <TableSection
                 title="D. Ex-Land Cash Flows (Optional)"
-                colSpan={data.annualData.length + 2}
+                colSpan={columns.length + 2}
               />
               <TableRow
                 label="Interest (Ex-Land)"
-                data={data.annualData}
+                data={columns}
                 dk="interestExLand"
                 total={data.totals.interestExLand}
                 isIndent
               />
               <TableRow
                 label="Principal (Ex-Land)"
-                data={data.annualData}
+                data={columns}
                 dk="principalExLand"
                 total={data.totals.principalExLand}
                 isIndent
               />
               <TableRow
                 label="EBT (Ex-Land)"
-                data={data.annualData}
+                data={columns}
                 dk="ebtExLand"
                 total={data.totals.ebtExLand}
                 highlight
               />
               <TableRow
                 label="Corporate Tax (Ex-Land)"
-                data={data.annualData}
+                data={columns}
                 dk="corpTaxExLand"
                 total={data.totals.corpTaxExLand}
                 isIndent
               />
               <TableRow
                 label="Net Exit Proceeds (Ex-Land)"
-                data={data.annualData}
+                data={columns}
                 dk="netExitProceedsExLand"
                 total={data.totals.netExitProceedsExLand}
                 highlight
               />
               <TableRow
                 label="FCFE (EX-LAND)"
-                data={data.annualData}
+                data={columns}
                 dk="fcfeExLand"
                 highlight
                 emerald
@@ -9183,7 +9252,7 @@ const PropCoCascadeView = memo(({ data, onExport }) => (
               />
               <TableRow
                 label="Cumulative FCFE (Ex-Land)"
-                data={data.annualData}
+                data={columns}
                 dk="cumFcfeExLand"
                 highlight
                 crossover
@@ -9196,7 +9265,8 @@ const PropCoCascadeView = memo(({ data, onExport }) => (
       </div>
     </div>
   </div>
-));
+);
+});
 
 const ConsolidatedDashboardView = memo(
   ({
@@ -9564,29 +9634,64 @@ const ConsolidatedDashboardView = memo(
   ),
 );
 
-const ConsolidatedCascadeView = memo(({ data }) => (
-  <div className="bg-white rounded-2xl shadow-sm border border-[#D8D8D8] overflow-hidden">
-    <div className="p-4 bg-[#EFEBE7] border-b border-[#D8D8D8] flex justify-between items-center">
+const ConsolidatedCascadeView = memo(({ data, viewResolution, setViewResolution }) => {
+  const { columns, expandedYears, toggleYear } = useMonthlyColumns(data.annualData, viewResolution);
+  const scrollRef = useRef(null);
+  return (
+  <div className="bg-white rounded-2xl shadow-sm border border-[#D8D8D8] overflow-hidden h-[calc(100vh-320px)] flex flex-col">
+    <div className="p-4 bg-[#EFEBE7] border-b border-[#D8D8D8] flex justify-between items-center shrink-0">
       <h3 className="text-xs font-bold uppercase tracking-widest text-[#1E2F31] flex items-center gap-2">
         <List size={14} /> Consolidated HoldCo Waterfall
       </h3>
-      <span className="text-[10px] bg-white text-[#4C4A4B] border border-[#D8D8D8] px-2 py-1 rounded font-bold uppercase shadow-sm">
-        IDR Billions
-      </span>
+      <div className="flex items-center gap-2">
+        <div className="flex items-center bg-white p-0.5 rounded-md border border-[#D8D8D8] shadow-sm mr-2">
+          <button
+            onClick={() => setViewResolution('annual')}
+            className={`px-2.5 py-1 text-[9px] font-bold uppercase tracking-wider rounded transition-all ${viewResolution === 'annual' ? 'bg-[#1C6048] text-white' : 'text-[#8A8175] hover:text-[#1E2F31] hover:bg-[#F9F8F6]'}`}
+          >
+            Annual
+          </button>
+          <button
+            onClick={() => setViewResolution('monthly')}
+            className={`px-2.5 py-1 text-[9px] font-bold uppercase tracking-wider rounded transition-all ${viewResolution === 'monthly' ? 'bg-[#9B8B70] text-white' : 'text-[#8A8175] hover:text-[#1E2F31] hover:bg-[#F9F8F6]'}`}
+          >
+            Monthly
+          </button>
+        </div>
+        <button onClick={() => scrollRef.current?.scrollBy({ left: -300, behavior: 'smooth' })} className="p-1 rounded bg-white border border-[#D8D8D8] text-[#1E2F31] shadow-sm hover:bg-[#F9F8F6]">
+          <ChevronLeft size={13} strokeWidth={2.5} />
+        </button>
+        <button onClick={() => scrollRef.current?.scrollBy({ left: 300, behavior: 'smooth' })} className="p-1 rounded bg-white border border-[#D8D8D8] text-[#1E2F31] shadow-sm hover:bg-[#F9F8F6]">
+          <ChevronRight size={13} strokeWidth={2.5} />
+        </button>
+        <span className="text-[10px] bg-white text-[#4C4A4B] border border-[#D8D8D8] px-2 py-1 rounded font-bold uppercase shadow-sm">
+          IDR Billions
+        </span>
+      </div>
     </div>
-    <div className="overflow-auto max-h-[70vh]">
+    <div ref={scrollRef} className="overflow-auto min-h-0 flex-1">
       <table className="w-full text-[11px] text-left border-separate border-spacing-0 min-w-[1000px]">
         <thead className="bg-[#EFEBE7] font-bold sticky top-0 z-20 shadow-md">
           <tr>
             <th className="px-4 py-3 border-b-2 border-r border-[#D8D8D8] sticky left-0 top-0 bg-[#EFEBE7] z-30 w-[260px] shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)] text-[#1E2F31]">
               Line Item
             </th>
-            {data.annualData.map((d, i) => (
+            {columns.map((col, i) => (
               <th
                 key={i}
-                className={`px-3 py-3 text-right min-w-[90px] border-b-2 border-r border-[#D8D8D8] bg-[#EFEBE7] ${!d.isOperating ? "text-[#9B8B70]" : "text-[#1E2F31]"}`}
+                onClick={col.colType === 'year' ? () => toggleYear(col.defaultLabel) : undefined}
+                className={`px-3 py-3 text-right border-b-2 border-r border-[#D8D8D8] ${
+                  col.colType === 'year' ? 'cursor-pointer hover:bg-white font-black underline decoration-dashed underline-offset-4 ' : 'font-medium text-[10px] '
+                } bg-[#EFEBE7] ${!col.isOperating ? "text-[#9B8B70]" : "text-[#1E2F31]"} ${col.isMonth ? 'min-w-[65px] whitespace-nowrap' : 'min-w-[90px]'}`}
               >
-                {String(d.year)}
+                {col.colType === 'year' ? (
+                   <div className="flex items-center justify-end gap-1">
+                     {expandedYears[col.defaultLabel] ? "-" : "+"}
+                     {String(col.defaultLabel)}
+                   </div>
+                ) : (
+                   <div className="text-center w-full">{String(col.defaultLabel)}</div>
+                )}
               </th>
             ))}
             <th className="px-4 py-3 text-right bg-[#EFEBE7] text-[#1E2F31] sticky right-0 top-0 z-30 border-l border-b-2 border-[#D8D8D8] shadow-[-2px_0_5px_-2px_rgba(0,0,0,0.1)]">
@@ -9597,25 +9702,25 @@ const ConsolidatedCascadeView = memo(({ data }) => (
         <tbody>
           <TableSection
             title="A. Component Cash Flows"
-            colSpan={data.annualData.length + 2}
+            colSpan={columns.length + 2}
           />
           <TableRow
             label="PropCo FCFE (100%)"
-            data={data.annualData}
+            data={columns}
             dk="propCoFlow"
             total={data.totals.propCoFlow}
             isIndent
           />
           <TableRow
             label="OpCo Dividend (49%)"
-            data={data.annualData}
+            data={columns}
             dk="opCoOperatingFlow"
             total={data.totals.opCoOperatingFlow}
             isIndent
           />
           <TableRow
             label="OpCo Exit Proceeds (49%)"
-            data={data.annualData}
+            data={columns}
             dk="opCoExitFlow"
             total={data.totals.opCoExitFlow}
             isIndent
@@ -9623,12 +9728,12 @@ const ConsolidatedCascadeView = memo(({ data }) => (
 
           <TableSection
             title="B. Consolidated Position"
-            colSpan={data.annualData.length + 2}
+            colSpan={columns.length + 2}
             type="emerald"
           />
           <TableRow
             label="NET COMBINED CASH FLOW"
-            data={data.annualData}
+            data={columns}
             dk="netFlow"
             total={data.totals.netFlow}
             highlight
@@ -9636,7 +9741,7 @@ const ConsolidatedCascadeView = memo(({ data }) => (
           />
           <TableRow
             label="Cumulative Net Position"
-            data={data.annualData}
+            data={columns}
             dk="cumCf"
             highlight
             crossover
@@ -9646,32 +9751,32 @@ const ConsolidatedCascadeView = memo(({ data }) => (
 
           <TableSection
             title="C. Managerial Look-Through PnL"
-            colSpan={data.annualData.length + 2}
+            colSpan={columns.length + 2}
           />
           <TableRow
             label="Look-Through Revenue"
-            data={data.annualData}
+            data={columns}
             dk="lookThroughRevenue"
             total={data.totals.lookThroughRevenue}
             isIndent
           />
           <TableRow
             label="Look-Through EBITDA"
-            data={data.annualData}
+            data={columns}
             dk="lookThroughEbitda"
             total={data.totals.lookThroughEbitda}
             isIndent
           />
           <TableRow
             label="Look-Through Net Income"
-            data={data.annualData}
+            data={columns}
             dk="lookThroughNetIncome"
             total={data.totals.lookThroughNetIncome}
             highlight
           />
           <TableRow
             label="Blended Net Margin (%)"
-            data={data.annualData}
+            data={columns}
             dk="lookThroughMargin"
             total={data.totals.lookThroughMargin}
             highlight
@@ -9681,7 +9786,8 @@ const ConsolidatedCascadeView = memo(({ data }) => (
       </table>
     </div>
   </div>
-));
+);
+});
 
 const OpCoSettingsView = memo(
   ({
@@ -12373,10 +12479,59 @@ const SettingsPasswordGate = ({ children }) => {
   );
 };
 
+export const useMonthlyColumns = (annualData, viewResolution = 'annual') => {
+  const [expandedYears, setExpandedYears] = useState({});
+  const toggleYear = (yr) => setExpandedYears(prev => ({...prev, [yr]: !prev[yr]}));
+
+  const columns = useMemo(() => {
+    let cols = [];
+    annualData.forEach(d => {
+       if (viewResolution !== 'monthly') {
+          cols.push({ ...d, colType: 'year', defaultLabel: d.year });
+       }
+       
+       if (expandedYears[d.year] || viewResolution === 'monthly') {
+          for (let m = 1; m <= 12; m++) {
+             let monthLabel = viewResolution === 'monthly' ? `${String(d.year).slice(-2)} M${m}` : `M${m}`;
+             let monthData = { ...d, colType: 'month', defaultLabel: monthLabel, isMonth: true, parentYear: d.year };
+             const isRate = ['bor', 'ebitdaMargin', 'netMargin', 'breakEvenBor', 'pA_Yield', 'pB_Yield', 'avgDscr', 'avgYield', 'moic', 'costPerBed', 'costPerSqm', 'yocExLand', 'irr', 'lpIrr', 'gpIrr', 'isOperating', 'year', 'colType', 'defaultLabel', 'isMonth', 'parentYear'];
+             const isBalance = ['debtBalance', 'debtBalanceExLand'];
+             Object.keys(d).forEach(k => {
+                if (!isRate.includes(k) && !isBalance.includes(k) && typeof d[k] === 'number') {
+                   if (k === 'cumNI' || k === 'cumulativeRetainedEarnings' || k === 'pA_Cum' || k === 'pB_Cum' || k === 'cumFcfe' || k === 'cumFcfeExLand' || k === 'cumFreeCashFlow' || k === 'cumCf') {
+                      let flowKey = '';
+                      if (k === 'cumNI') flowKey = 'netIncome';
+                      if (k === 'cumulativeRetainedEarnings') flowKey = 'retainedThisYear';
+                      if (k === 'pA_Cum') flowKey = 'pA_Net';
+                      if (k === 'pB_Cum') flowKey = 'pB_Net';
+                      if (k === 'cumFcfe') flowKey = 'fcfe';
+                      if (k === 'cumFcfeExLand') flowKey = 'fcfeExLand';
+                      if (k === 'cumFreeCashFlow') flowKey = 'freeCashFlow';
+                      if (k === 'cumCf') flowKey = 'netFlow';
+                      
+                      const flow = d[flowKey] || 0;
+                      const startBase = d[k] - flow; 
+                      monthData[k] = startBase + (flow / 12) * m;
+                   } else {
+                      monthData[k] = d[k] / 12;
+                   }
+                }
+             });
+             cols.push(monthData);
+          }
+       }
+    });
+    return cols;
+  }, [annualData, expandedYears, viewResolution]);
+
+  return { columns, expandedYears, toggleYear };
+};
+
 export default function App() {
   const [activeGroup, setActiveGroup] = useState("context"); // 'context' or 'financials'
   const [activeCompany, setActiveCompany] = useState("opco");
   const [activeTab, setActiveTab] = useState("overview");
+  const [viewResolution, setViewResolution] = useState("annual");
   const [isLockedOpCo, setIsLockedOpCo] = useState(true);
   const [isLockedPropCo, setIsLockedPropCo] = useState(true);
   const [isPresenting, setIsPresenting] = useState(false);
@@ -13161,6 +13316,8 @@ export default function App() {
                 <OpCoCascadeView
                   data={opCoModelData}
                   assumptions={opCoAssumptions}
+                  viewResolution={viewResolution}
+                  setViewResolution={setViewResolution}
                 />
               )}
               {activeTab === "sensitivity" && (
@@ -13208,7 +13365,7 @@ export default function App() {
                 />
               )}
               {activeTab === "comprehensive" && (
-                <PropCoCascadeView data={propCoModelData} onExport={() => {}} />
+                <PropCoCascadeView data={propCoModelData} onExport={() => {}} viewResolution={viewResolution} setViewResolution={setViewResolution} />
               )}
               {activeTab === "sensitivity" && (
                 <PropCoSensitivityView
@@ -13257,7 +13414,7 @@ export default function App() {
                 />
               )}
               {activeTab === "comprehensive" && (
-                <ConsolidatedCascadeView data={consolidatedModelData} />
+                <ConsolidatedCascadeView data={consolidatedModelData} viewResolution={viewResolution} setViewResolution={setViewResolution} />
               )}
             </div>
           )}
