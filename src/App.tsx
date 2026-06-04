@@ -104,6 +104,7 @@ import {
   HelpCircle,
   Zap,
 } from "lucide-react";
+import { ExecutiveSummaryView } from "./ExecutiveSummaryView";
 
 const CHART_MARGINS_BAR = { top: 20, right: 0, left: 0, bottom: 0 };
 const CHART_MARGINS_LINE = { top: 40, right: 35, left: 20, bottom: 0 };
@@ -412,22 +413,25 @@ const formatCurrency = (val) => {
 const calculatePMT = (rate, nper, pv) =>
   rate === 0 ? -(pv / nper) : -(pv * rate) / (1 - Math.pow(1 + rate, -nper));
 
-const calculatePayback = (cfs) => {
+const calculatePayback = (cfs, frequency = 'annual') => {
   if (!cfs || cfs.length === 0) return 0;
   let cumulative = 0;
   for (let i = 0; i < cfs.length; i++) {
     let prevCumulative = cumulative;
     cumulative += cfs[i] || 0;
-    if (cumulative >= 0 && prevCumulative < 0)
-      return i + Math.abs(prevCumulative) / (cfs[i] || 1);
+    if (cumulative >= 0 && prevCumulative < 0) {
+      const fraction = Math.abs(prevCumulative) / (cfs[i] || 1);
+      const periods = i + fraction;
+      return frequency === 'monthly' ? periods / 12 : periods;
+    }
   }
   return 0; // Return 0 if the project never catches up, preventing fake extrapolation
 };
 
-const calculateIRR = (cfs) => {
+const calculateIRR = (cfs, frequency = 'annual') => {
   if (!cfs || cfs.length === 0) return 0;
-  let rate = 0.1;
-  for (let i = 0; i < 100; i++) {
+  let rate = frequency === 'monthly' ? 0.01 : 0.1;
+  for (let i = 0; i < 150; i++) {
     let npv = 0,
       dNpv = 0;
     for (let t = 0; t < cfs.length; t++) {
@@ -435,21 +439,36 @@ const calculateIRR = (cfs) => {
       npv += val / Math.pow(1 + rate, t);
       if (t > 0) dNpv -= (t * val) / Math.pow(1 + rate, t + 1);
     }
-    if (Math.abs(dNpv) < 1e-10) break;
+    if (Math.abs(dNpv) < 1e-12) break;
     let newRate = rate - npv / dNpv;
-    if (Math.abs(newRate - rate) < 1e-6) return newRate;
+    if (Math.abs(newRate - rate) < 1e-7) {
+      if (frequency === 'monthly') {
+        const annualEquivalent = Math.pow(1 + newRate, 12) - 1;
+        if (isNaN(annualEquivalent) || !isFinite(annualEquivalent)) return 0;
+        return annualEquivalent;
+      }
+      return newRate;
+    }
     rate = newRate;
   }
   return 0;
 };
 
-const calculateNPV = (cfs, rate) =>
-  !cfs
-    ? 0
-    : cfs.reduce(
-        (acc, val, i) => acc + (val || 0) / Math.pow(1 + (rate || 12) / 100, i),
-        0,
-      );
+const calculateNPV = (cfs, rate, frequency = 'annual') => {
+  if (!cfs) return 0;
+  const discountRate = rate || 12;
+  if (frequency === 'monthly') {
+    const rMonthly = Math.pow(1 + discountRate / 100, 1 / 12) - 1;
+    return cfs.reduce(
+      (acc, val, t) => acc + (val || 0) / Math.pow(1 + rMonthly, t),
+      0,
+    );
+  }
+  return cfs.reduce(
+    (acc, val, i) => acc + (val || 0) / Math.pow(1 + discountRate / 100, i),
+    0,
+  );
+};
 
 const DEFAULT_OPCO_ASSUMPTIONS = {
   beds: 120,
@@ -525,10 +544,11 @@ const DEFAULT_PROPCO_ASSUMPTIONS = {
   capexContingencyPct: 2,
   capexConsultantPct: 2.5,
   capexLicensePct: 1.5,
-  capexCarPct: 0.15,
   capexVat: 11,
   devDurationMonths: 24,
   equityDrawYear1Pct: 100,
+  devGaMonthly: 0.5,
+  devCarPct: 0.15,
   constructionOpexMonthly: 0.5,
   opOverheadMonthly: 0.2,
   opOverheadInc: 4,
@@ -550,6 +570,8 @@ const DEFAULT_PROPCO_ASSUMPTIONS = {
   depMethodMedEq: "SL",
   depLifeFFE: 20,
   depMethodFFE: "SL",
+  depLifeSoftCost: 20,
+  depMethodSoftCost: "SL",
   includeTerminalValue: true,
   exitMethod: "multiple",
   exitCapRate: 8.5,
@@ -625,29 +647,65 @@ const runOpCoEngine = (assumptions, config) => {
   }
   const totalEquity = assumptions.partnerAEquity + assumptions.partnerBEquity;
   let annualData = [],
-    projectCfs = [],
-    partnerACfs = [],
-    partnerBCfs = [];
+    projectCfsMonthly = [],
+    partnerACfsMonthly = [],
+    partnerBCfsMonthly = [];
   let cumulativeNetIncome = 0,
     partnerA_CumCF = 0,
     partnerB_CumCF = 0,
     cumulativeRetainedEarnings = 0;
 
+  // Simulate 24 pre-operating months
+  for (let m = 1; m <= 24; m++) {
+    const isY1 = m <= 12;
+    const split = isY1 ? (assumptions.equitySplitY1 / 100) : ((100 - assumptions.equitySplitY1) / 100);
+    const opexKey = isY1 ? "jvaOpex" : "commOpex";
+    const net_month = -assumptions[opexKey] / 12;
+
+    cumulativeNetIncome += net_month;
+    const m_pA_Outlay = -assumptions.partnerAEquity * split / 12;
+    const m_pB_Outlay = -assumptions.partnerBEquity * split / 12;
+    partnerA_CumCF += m_pA_Outlay;
+    partnerB_CumCF += m_pB_Outlay;
+
+    partnerACfsMonthly.push(m_pA_Outlay);
+    partnerBCfsMonthly.push(m_pB_Outlay);
+    projectCfsMonthly.push(m_pA_Outlay + m_pB_Outlay);
+  }
+
+  // Pre-operating years: Yr 1 & Yr 2 pushed for Annual Spreadsheets
   const preOp = [
-    { k: "jvaOpex", y: "Year 1", split: assumptions.equitySplitY1 / 100 },
+    { k: "jvaOpex", y: "Year 1", split: assumptions.equitySplitY1 / 100, startM: 1 },
     {
       k: "commOpex",
       y: "Year 2",
       split: (100 - assumptions.equitySplitY1) / 100,
+      startM: 13
     },
   ];
-  preOp.forEach((p) => {
+  preOp.forEach((p, idx) => {
     const net = -assumptions[p.k];
-    cumulativeNetIncome += net;
     const pA_Outlay = -assumptions.partnerAEquity * p.split;
     const pB_Outlay = -assumptions.partnerBEquity * p.split;
-    partnerA_CumCF += pA_Outlay;
-    partnerB_CumCF += pB_Outlay;
+
+    let monthly = {};
+    const keys = ["ebitda", "netIncome", "cumNI", "cumulativeRetainedEarnings", "pA_Outlay", "pA_Net", "pA_Cum", "pB_Outlay", "pB_Net", "pB_Cum", "fcf"];
+    keys.forEach(k => monthly[k] = new Array(12).fill(0));
+
+    for (let m = 0; m < 12; m++) {
+      const globalM = idx * 12 + m;
+      monthly.ebitda[m] = net / 12;
+      monthly.netIncome[m] = net / 12;
+      monthly.cumNI[m] = (net * idx) + (net / 12) * (m + 1);
+      monthly.cumulativeRetainedEarnings[m] = 0;
+      monthly.pA_Outlay[m] = pA_Outlay / 12;
+      monthly.pA_Net[m] = pA_Outlay / 12;
+      monthly.pA_Cum[m] = (pA_Outlay * idx) + (pA_Outlay / 12) * (m + 1);
+      monthly.pB_Outlay[m] = pB_Outlay / 12;
+      monthly.pB_Net[m] = pB_Outlay / 12;
+      monthly.pB_Cum[m] = (pB_Outlay * idx) + (pB_Outlay / 12) * (m + 1);
+      monthly.fcf[m] = (pA_Outlay + pB_Outlay) / 12;
+    }
 
     annualData.push({
       year: p.y,
@@ -665,7 +723,7 @@ const runOpCoEngine = (assumptions, config) => {
       ebitda: net,
       tax: 0,
       netIncome: net,
-      cumNI: cumulativeNetIncome,
+      cumNI: net * (idx + 1),
       distributableProfit: 0,
       retainedThisYear: 0,
       cumulativeRetainedEarnings: 0,
@@ -674,12 +732,12 @@ const runOpCoEngine = (assumptions, config) => {
       pA_Outlay,
       pA_Div: 0,
       pA_Net: pA_Outlay,
-      pA_Cum: partnerA_CumCF,
+      pA_Cum: pA_Outlay * (idx + 1),
       pA_Yield: 0,
       pB_Outlay,
       pB_Div: 0,
       pB_Net: pB_Outlay,
-      pB_Cum: partnerB_CumCF,
+      pB_Cum: pB_Outlay * (idx + 1),
       pB_Yield: 0,
       fcf: pA_Outlay + pB_Outlay,
       ebitdaMargin: 0,
@@ -688,28 +746,31 @@ const runOpCoEngine = (assumptions, config) => {
       breakEvenBor: 0,
       bor: 0,
       ev: 0,
+      monthly,
     });
-    partnerACfs.push(pA_Outlay);
-    partnerBCfs.push(pB_Outlay);
-    projectCfs.push(pA_Outlay + pB_Outlay);
   });
 
+  // Operating years
   for (let i = 1; i <= projYears; i++) {
+    const currentYear = 2025 + i;
+    const daysInYear = ((currentYear % 4 === 0 && currentYear % 100 !== 0) || currentYear % 400 === 0) ? 366 : 365;
+    
     let bor = Math.min(
       assumptions.borMax / 100,
       assumptions.borStart / 100 + (i - 1) * (assumptions.borIncrement / 100),
     );
-    let bedDays = assumptions.beds * 365 * bor;
+    let bedDays = assumptions.beds * daysInYear * bor;
     let ipCases = bedDays / assumptions.alos;
     let opVisits = ipCases * assumptions.opIpRatio;
     let priceMultiplier = 1;
-    for (let j = 2; j <= i; j++)
+    for (let j = 2; j <= i; j++) {
       priceMultiplier *=
         1 +
         (j <= 6
           ? assumptions.priceIncYears1_6
           : assumptions.priceIncYears7_plus) /
           100;
+    }
 
     let ipRev = (ipCases * (assumptions.ipRevenue * priceMultiplier)) / 1000;
     let opRev = (opVisits * (assumptions.opRevenue * priceMultiplier)) / 1000;
@@ -742,9 +803,10 @@ const runOpCoEngine = (assumptions, config) => {
 
     let ebitdar = grossProfit - recurringOpex;
 
-    let rent = 0;
+    // Calculate annual rent structure
+    let annualRent = 0;
     if (assumptions.rentStructureType === "flatEbitdar") {
-      rent =
+      annualRent =
         ebitdar > 0
           ? ((assumptions.rentFlatEbitdarRate ?? 15) / 100) * ebitdar
           : 0;
@@ -755,9 +817,8 @@ const runOpCoEngine = (assumptions, config) => {
         remainingProfit > 0
           ? ((assumptions.rentProfitRate ?? 10) / 100) * remainingProfit
           : 0;
-      rent = revRent + profitRent;
+      annualRent = revRent + profitRent;
     } else {
-      // Default: tiered structure
       let currentRevPab =
         assumptions.beds > 0 ? totalRev / assumptions.beds : 0;
       let rentRate = 0;
@@ -766,12 +827,166 @@ const runOpCoEngine = (assumptions, config) => {
       else if (currentRevPab < assumptions.rentTier2Limit)
         rentRate = assumptions.rentTier2Rate;
       else rentRate = assumptions.rentTier3Rate;
-      rent = ebitdar > 0 ? (rentRate / 100) * ebitdar : 0;
+      annualRent = ebitdar > 0 ? (rentRate / 100) * ebitdar : 0;
     }
 
-    let ebitda = ebitdar - rent;
-    let tax = ebitda > 0 ? ebitda * (assumptions.corporateTax / 100) : 0;
-    let netIncome = ebitda - tax;
+    // Run 12 months for Operating Year i
+    let monthly = {
+      ipRev: [], opRev: [], totalRev: [], totalMedSupp: [], totalDocFee: [],
+      grossProfit: [], staffCost: [], recurringOpex: [], ebitdar: [],
+      rent: [], ebitda: [], tax: [], netIncome: [], cumNI: [], distributableProfit: [],
+      retainedThisYear: [], cumulativeRetainedEarnings: [], shareA: [], shareB: [], opCoExit: [], pA_Exit: [], pB_Exit: [], ev: [],
+      pA_Div: [], pA_Net: [], pA_Outlay: [], pA_Cum: [], pB_Div: [], pB_Net: [], pB_Outlay: [], pB_Cum: [], fcf: [], bor: [], pA_Yield: [], pB_Yield: [], ipCases: [], opVisits: []
+    };
+
+    let year_ipRev = 0,
+      year_opRev = 0,
+      year_totalRev = 0,
+      year_totalMedSupp = 0,
+      year_totalDocFee = 0,
+      year_grossProfit = 0,
+      year_staffCost = 0,
+      year_recurringOpex = 0,
+      year_ebitdar = 0,
+      year_rent = 0,
+      year_ebitda = 0,
+      year_tax = 0,
+      year_netIncome = 0,
+      year_distributableProfit = 0,
+      year_retainedThisYear = 0,
+      year_shareA = 0,
+      year_shareB = 0,
+      year_opCoExit = 0,
+      year_pA_Exit = 0,
+      year_pB_Exit = 0,
+      year_ev = 0;
+
+    for (let m = 1; m <= 12; m++) {
+      const days = new Date(currentYear, m, 0).getDate();
+      
+      let m_ipCases = ipCases * (days / daysInYear);
+      let m_opVisits = opVisits * (days / daysInYear);
+
+      let m_ipRev = ipRev * (days / daysInYear);
+      let m_opRev = opRev * (days / daysInYear);
+      let m_totalRev = totalRev * (days / daysInYear);
+      let m_totalMedSupp = totalMedSupp * (days / daysInYear);
+      let m_totalDocFee = totalDocFee * (days / daysInYear);
+      let m_grossProfit = grossProfit * (days / daysInYear);
+      let m_staffCost = staffCost * (days / daysInYear);
+      let m_recurringOpex = recurringOpex * (days / daysInYear);
+      let m_ebitdar = ebitdar * (days / daysInYear);
+
+      // Distributed monthly:
+      let m_rent = annualRent * (days / daysInYear);
+      let m_ebitda = m_ebitdar - m_rent;
+      let m_tax = m_ebitda > 0 ? m_ebitda * (assumptions.corporateTax / 100) : 0;
+      let m_netIncome = m_ebitda - m_tax;
+
+      let prevCumNI = cumulativeNetIncome;
+      cumulativeNetIncome += m_netIncome;
+
+      let m_availableForDistribution = Math.max(
+        0,
+        cumulativeNetIncome > 0
+          ? prevCumNI < 0
+            ? cumulativeNetIncome
+            : m_netIncome
+          : 0,
+      );
+      let m_distributableProfit =
+        m_availableForDistribution *
+        ((assumptions.dividendPayoutRatio ?? 100) / 100);
+      let m_retainedThisYear = m_availableForDistribution - m_distributableProfit;
+      cumulativeRetainedEarnings += m_retainedThisYear;
+
+      let m_shareA = m_distributableProfit * (assumptions.sharingPercentA / 100);
+      let m_shareB = m_distributableProfit * ((100 - assumptions.sharingPercentA) / 100);
+
+      let m_ev = 0, m_opCoExit = 0, m_pA_Exit = 0, m_pB_Exit = 0;
+      if (exitYear !== null && i === exitYear && m === 12) {
+        let annualEbitda = ebitdar - annualRent;
+        m_ev = annualEbitda * (assumptions.exitMultiple || 30);
+        if (assumptions.sellingCosts) {
+          m_ev = m_ev * (1 - assumptions.sellingCosts / 100);
+        }
+        m_opCoExit = m_ev + cumulativeRetainedEarnings;
+        m_pA_Exit = m_opCoExit * (assumptions.sharingPercentA / 100);
+        m_pB_Exit = m_opCoExit * ((100 - assumptions.sharingPercentA) / 100);
+      }
+
+      partnerA_CumCF += (m_shareA + m_pA_Exit);
+      partnerB_CumCF += (m_shareB + m_pB_Exit);
+
+      partnerACfsMonthly.push(m_shareA + m_pA_Exit);
+      partnerBCfsMonthly.push(m_shareB + m_pB_Exit);
+
+      const wcOpex_month = (i === 1 && m === 1) ? assumptions.workingCapitalOpex : 0;
+      let m_fcf = m_netIncome + wcOpex_month + m_opCoExit;
+      projectCfsMonthly.push(m_fcf);
+
+      // Store monthly snapshots
+      monthly.ipCases.push(m_ipCases);
+      monthly.opVisits.push(m_opVisits);
+      monthly.ipRev.push(m_ipRev);
+      monthly.opRev.push(m_opRev);
+      monthly.totalRev.push(m_totalRev);
+      monthly.totalMedSupp.push(m_totalMedSupp);
+      monthly.totalDocFee.push(m_totalDocFee);
+      monthly.grossProfit.push(m_grossProfit);
+      monthly.staffCost.push(m_staffCost);
+      monthly.recurringOpex.push(m_recurringOpex);
+      monthly.ebitdar.push(m_ebitdar);
+      monthly.rent.push(m_rent);
+      monthly.ebitda.push(m_ebitda);
+      monthly.tax.push(m_tax);
+      monthly.netIncome.push(m_netIncome);
+      monthly.cumNI.push(cumulativeNetIncome);
+      monthly.distributableProfit.push(m_distributableProfit);
+      monthly.retainedThisYear.push(m_retainedThisYear);
+      monthly.cumulativeRetainedEarnings.push(cumulativeRetainedEarnings);
+      monthly.shareA.push(m_shareA);
+      monthly.shareB.push(m_shareB);
+      monthly.opCoExit.push(m_opCoExit);
+      monthly.pA_Exit.push(m_pA_Exit);
+      monthly.pB_Exit.push(m_pB_Exit);
+      monthly.ev.push(m_ev);
+      monthly.pA_Div.push(m_shareA + m_pA_Exit);
+      monthly.pA_Net.push(m_shareA + m_pA_Exit);
+      monthly.pA_Cum.push(partnerA_CumCF);
+      monthly.pB_Div.push(m_shareB + m_pB_Exit);
+      monthly.pB_Net.push(m_shareB + m_pB_Exit);
+      monthly.pB_Cum.push(partnerB_CumCF);
+      monthly.pA_Outlay.push(0);
+      monthly.pB_Outlay.push(0);
+      monthly.fcf.push(m_fcf);
+      monthly.bor.push(bor * 100);
+      monthly.pA_Yield.push(assumptions.partnerAEquity > 0 ? (m_shareA / assumptions.partnerAEquity) * 100 : 0);
+      monthly.pB_Yield.push(assumptions.partnerBEquity > 0 ? (m_shareB / assumptions.partnerBEquity) * 100 : 0);
+
+      // Accumulate monthly aggregates for Annual Spreadsheets
+      year_ipRev += m_ipRev;
+      year_opRev += m_opRev;
+      year_totalRev += m_totalRev;
+      year_totalMedSupp += m_totalMedSupp;
+      year_totalDocFee += m_totalDocFee;
+      year_grossProfit += m_grossProfit;
+      year_staffCost += m_staffCost;
+      year_recurringOpex += m_recurringOpex;
+      year_ebitdar += m_ebitdar;
+      year_rent += m_rent;
+      year_ebitda += m_ebitda;
+      year_tax += m_tax;
+      year_netIncome += m_netIncome;
+      year_distributableProfit += m_distributableProfit;
+      year_retainedThisYear += m_retainedThisYear;
+      year_shareA += m_shareA;
+      year_shareB += m_shareB;
+      year_opCoExit += m_opCoExit;
+      year_pA_Exit += m_pA_Exit;
+      year_pB_Exit += m_pB_Exit;
+      year_ev += m_ev;
+    }
 
     const fixedTotal = staffCost + (assumptions.insuranceMonthly * 12) / 1000;
     const varRate =
@@ -790,103 +1005,60 @@ const runOpCoEngine = (assumptions, config) => {
     const breakEvenRev = 1 - varRate > 0 ? fixedTotal / (1 - varRate) : 0;
     const breakEvenBor = totalRev > 0 ? (breakEvenRev / totalRev) * bor : 0;
 
-    let prevCumNI = cumulativeNetIncome;
-    cumulativeNetIncome += netIncome;
-
-    let availableForDistribution = Math.max(
-      0,
-      cumulativeNetIncome > 0
-        ? prevCumNI < 0
-          ? cumulativeNetIncome
-          : netIncome
-        : 0,
-    );
-    let distributableProfit =
-      availableForDistribution *
-      ((assumptions.dividendPayoutRatio ?? 100) / 100);
-    let retainedThisYear = availableForDistribution - distributableProfit;
-    cumulativeRetainedEarnings += retainedThisYear;
-
-    let opCoExit = 0,
-      pA_Exit = 0,
-      pB_Exit = 0,
-      ev = 0;
-    if (exitYear !== null && i === exitYear) {
-      ev = ebitda * (assumptions.exitMultiple || 30);
-      if (assumptions.sellingCosts) {
-        ev = ev * (1 - assumptions.sellingCosts / 100);
-      }
-      opCoExit = ev + cumulativeRetainedEarnings;
-      pA_Exit = opCoExit * (assumptions.sharingPercentA / 100);
-      pB_Exit = opCoExit * ((100 - assumptions.sharingPercentA) / 100);
-    }
-
-    let shareA = distributableProfit * (assumptions.sharingPercentA / 100);
-    let shareB =
-      distributableProfit * ((100 - assumptions.sharingPercentA) / 100);
-
-    partnerA_CumCF += shareA + pA_Exit;
-    partnerB_CumCF += shareB + pB_Exit;
-
     annualData.push({
       year: `Year ${i + 2}`,
       isOperating: true,
-      ipRev,
-      opRev,
-      totalRev,
-      totalMedSupp,
-      totalDocFee,
-      grossProfit,
-      staffCost,
-      recurringOpex,
-      ebitdar,
-      rent,
-      ebitda,
-      tax,
-      netIncome,
+      ipRev: year_ipRev,
+      opRev: year_opRev,
+      totalRev: year_totalRev,
+      totalMedSupp: year_totalMedSupp,
+      totalDocFee: year_totalDocFee,
+      grossProfit: year_grossProfit,
+      staffCost: year_staffCost,
+      recurringOpex: year_recurringOpex,
+      ebitdar: year_ebitdar,
+      rent: year_rent,
+      ebitda: year_ebitda,
+      tax: year_tax,
+      netIncome: year_netIncome,
       cumNI: cumulativeNetIncome,
-      distributableProfit,
-      retainedThisYear,
+      distributableProfit: year_distributableProfit,
+      retainedThisYear: year_retainedThisYear,
       cumulativeRetainedEarnings,
-      shareA,
-      shareB,
-      opCoExit,
-      pA_Exit,
-      pB_Exit,
-      ev,
+      shareA: year_shareA,
+      shareB: year_shareB,
+      opCoExit: year_opCoExit,
+      pA_Exit: year_pA_Exit,
+      pB_Exit: year_pB_Exit,
+      ev: year_ev,
       pA_Outlay: 0,
-      pA_Div: shareA + pA_Exit,
-      pA_Net: shareA + pA_Exit,
+      pA_Div: year_shareA + year_pA_Exit,
+      pA_Net: year_shareA + year_pA_Exit,
       pA_Cum: partnerA_CumCF,
       pB_Outlay: 0,
-      pB_Div: shareB + pB_Exit,
-      pB_Net: shareB + pB_Exit,
+      pB_Div: year_shareB + year_pB_Exit,
+      pB_Net: year_shareB + year_pB_Exit,
       pB_Cum: partnerB_CumCF,
       pA_Yield:
         assumptions.partnerAEquity > 0
-          ? (shareA / assumptions.partnerAEquity) * 100
+          ? (year_shareA / assumptions.partnerAEquity) * 100
           : 0,
       pB_Yield:
         assumptions.partnerBEquity > 0
-          ? (shareB / assumptions.partnerBEquity) * 100
+          ? (year_shareB / assumptions.partnerBEquity) * 100
           : 0,
-      fcf:
-        netIncome + (i === 1 ? assumptions.workingCapitalOpex : 0) + opCoExit,
-      ebitdaMargin: totalRev > 0 ? (ebitda / totalRev) * 100 : 0,
-      netMargin: totalRev > 0 ? (netIncome / totalRev) * 100 : 0,
-      roe: totalEquity > 0 ? (netIncome / totalEquity) * 100 : 0,
+      fcf: year_netIncome + (i === 1 ? assumptions.workingCapitalOpex : 0) + year_opCoExit,
+      ebitdaMargin: year_totalRev > 0 ? (year_ebitda / year_totalRev) * 100 : 0,
+      netMargin: year_totalRev > 0 ? (year_netIncome / year_totalRev) * 100 : 0,
+      roe: totalEquity > 0 ? (year_netIncome / totalEquity) * 100 : 0,
       breakEvenBor: breakEvenBor * 100,
       bor: bor * 100,
       ipCases,
       opVisits,
       fixedCosts: fixedTotal,
       varCosts: grossProfit - ebitdar,
+      monthly,
     });
-    partnerACfs.push(shareA + pA_Exit);
-    partnerBCfs.push(shareB + pB_Exit);
-    projectCfs.push(
-      netIncome + (i === 1 ? assumptions.workingCapitalOpex : 0) + opCoExit,
-    );
   }
 
   const operatingData = annualData.filter((d) => d.isOperating);
@@ -952,11 +1124,11 @@ const runOpCoEngine = (assumptions, config) => {
       beds: assumptions.beds,
     },
     totalEquity,
-    projectIRR: calculateIRR(projectCfs),
-    projectNPV: calculateNPV(projectCfs, assumptions.discountRate),
+    projectIRR: calculateIRR(projectCfsMonthly, 'monthly'),
+    projectNPV: calculateNPV(projectCfsMonthly, assumptions.discountRate, 'monthly'),
     partnerA: {
-      irr: calculateIRR(partnerACfs),
-      payback: calculatePayback(partnerACfs),
+      irr: calculateIRR(partnerACfsMonthly, 'monthly'),
+      payback: calculatePayback(partnerACfsMonthly, 'monthly'),
       totalCash: annualData.reduce(
         (acc, d) => acc + (d.shareA || 0) + (d.pA_Exit || 0),
         0,
@@ -975,8 +1147,8 @@ const runOpCoEngine = (assumptions, config) => {
           : 0,
     },
     partnerB: {
-      irr: calculateIRR(partnerBCfs),
-      payback: calculatePayback(partnerBCfs),
+      irr: calculateIRR(partnerBCfsMonthly, 'monthly'),
+      payback: calculatePayback(partnerBCfsMonthly, 'monthly'),
       totalCash: annualData.reduce(
         (acc, d) => acc + (d.shareB || 0) + (d.pB_Exit || 0),
         0,
@@ -994,6 +1166,9 @@ const runOpCoEngine = (assumptions, config) => {
             operatingData.length
           : 0,
     },
+    projectCfsMonthly,
+    partnerACfsMonthly,
+    partnerBCfsMonthly,
   };
 };
 
@@ -1008,48 +1183,52 @@ const runPropCoEngine = (assumptions, opCoModelData, config) => {
     exitYear = 10;
   }
   let annualData = [],
-    equityCfs = [],
-    equityCfsExLand = [],
-    unleveredCfs = [],
-    operatingCfs = [];
+    equityCfsMonthly = [],
+    equityCfsExLandMonthly = [],
+    unleveredCfsMonthly = [],
+    operatingCfsMonthly = [],
+    devGaMonthly = [],
+    devCarMonthly = [];
+
   const landCost =
     (assumptions.includeLand ?? true)
       ? (assumptions.landArea * assumptions.landPrice) / 1000
       : 0;
   const buildCost = (assumptions.buildArea * assumptions.buildCost) / 1000;
+  const medEqFullValue = assumptions.includeMedEq
+    ? (assumptions.capexMedEqQty * assumptions.capexMedEqPrice) / 1000
+    : 0;
   const medEqCost =
-    assumptions.includeMedEq && assumptions.medEqProcurement !== "lease"
-      ? (assumptions.capexMedEqQty * assumptions.capexMedEqPrice) / 1000
-      : 0;
+    assumptions.medEqProcurement !== "lease" ? medEqFullValue : 0;
   const infraCost =
     (assumptions.capexInfraQty * assumptions.capexInfraPrice) / 1000;
   const ffeCost = assumptions.includeFFE
     ? (assumptions.capexFFEQty * assumptions.capexFFEPrice) / 1000
     : 0;
-  const totalHardCosts = buildCost + medEqCost + infraCost + ffeCost;
-
-  const coreCostForPct = buildCost + ffeCost + medEqCost + infraCost;
-  const consultantCost =
-    coreCostForPct * ((assumptions.capexConsultantPct || 0) / 100);
-  const licenseCost =
-    coreCostForPct * ((assumptions.capexLicensePct || 0) / 100);
-  const carCost = buildCost * ((assumptions.capexCarPct || 0) / 100);
   const sharingDevCost =
     (assumptions.capexSharingDevQty * assumptions.capexSharingDevPrice) / 1000;
+  const totalHardCosts = buildCost + medEqCost + infraCost + ffeCost + sharingDevCost;
+
+  const consultantBase = buildCost + ffeCost + infraCost + medEqFullValue;
+  const licenseBase = consultantBase;
+
+  const consultantCost =
+    consultantBase * ((assumptions.capexConsultantPct || 0) / 100);
+  const licenseCost =
+    licenseBase * ((assumptions.capexLicensePct || 0) / 100);
   const vatBase =
     consultantCost +
     buildCost +
     ffeCost +
-    medEqCost +
     infraCost +
     sharingDevCost;
   const vatCost = vatBase * ((assumptions.capexVat || 0) / 100);
+  const carCost = buildCost * ((assumptions.devCarPct || 0) / 100);
   const contingencyBase =
     licenseCost +
     consultantCost +
     buildCost +
     ffeCost +
-    medEqCost +
     infraCost +
     sharingDevCost +
     vatCost;
@@ -1073,279 +1252,497 @@ const runPropCoEngine = (assumptions, opCoModelData, config) => {
   const totalEquity = totalCapex - totalDebt;
 
   const ioYears = assumptions.ioGracePeriodYears || 0;
-  const amortizingTenor = Math.max(1, assumptions.loanTenor - ioYears);
-  const postIoPmt = Math.abs(
-    calculatePMT(assumptions.interestRate / 100, amortizingTenor, totalDebt),
+  const ioGraceMonths = ioYears * 12;
+  const loanTenorMonths = (assumptions.loanTenor || 15) * 12;
+  const amortizingTenorMonths = Math.max(1, loanTenorMonths - ioGraceMonths);
+  const rateMonthly = assumptions.interestRate / 100 / 12;
+
+  const postIoPmtMonthly = Math.abs(
+    calculatePMT(rateMonthly, amortizingTenorMonths, totalDebt),
   );
   const totalCapexExLand = totalCapex - landCost;
   const totalDebtExLand = totalCapexExLand * (effectiveLtv / 100);
   const totalEquityExLand = totalCapexExLand - totalDebtExLand;
-  const postIoPmtExLand = Math.abs(
-    calculatePMT(
-      assumptions.interestRate / 100,
-      amortizingTenor,
-      totalDebtExLand,
-    ),
+  const postIoPmtExLandMonthly = Math.abs(
+    calculatePMT(rateMonthly, amortizingTenorMonths, totalDebtExLand),
   );
 
-  const buildBasis =
-    buildCost +
-    (totalHardCosts > 0 ? (totalSoftCosts * buildCost) / totalHardCosts : 0);
-  let medEqBasis =
-    medEqCost +
-    (totalHardCosts > 0 ? (totalSoftCosts * medEqCost) / totalHardCosts : 0);
-  const infraBasis =
-    infraCost +
-    (totalHardCosts > 0 ? (totalSoftCosts * infraCost) / totalHardCosts : 0);
-  const ffeBasis =
-    ffeCost +
-    (totalHardCosts > 0 ? (totalSoftCosts * ffeCost) / totalHardCosts : 0);
+  const buildBasis = buildCost;
+  let medEqBasis = medEqCost;
+  const infraBasis = infraCost + sharingDevCost;
+  const ffeBasis = ffeCost;
+  let softCostBasis = totalSoftCosts;
 
   const devYears = Math.max(
     1,
     Math.ceil((assumptions.devDurationMonths || 12) / 12),
   );
+  const totalDevMonths = assumptions.devDurationMonths || 24;
+
   let outstandingDebt = totalDebt,
     outstandingDebtExLand = totalDebtExLand,
     equityCum = 0,
     equityCumExLand = 0;
 
+  const genericCapex = totalCapex - consultantCost - licenseCost;
+  const genericEquity = genericCapex * (1 - effectiveLtv / 100);
+  const genericEquityExLand = (genericCapex - landCost) * (1 - effectiveLtv / 100);
+
+  // Run development phase month-by-month
+  for (let md = 1; md <= totalDevMonths; md++) {
+    const devYearOfThisMonth = Math.ceil(md / 12);
+    const m_ga = assumptions.devGaMonthly || 0;
+    
+    let eqDrawBase_month, eqDrawExLandBase_month, capDrawBase_month;
+    
+    let genericCapDraw_month, genericEqDraw_month, genericEqDrawExLand_month;
+    if (devYears > 1) {
+      const y1Pct = (assumptions.equityDrawYear1Pct ?? 50) / 100;
+      if (devYearOfThisMonth === 1) {
+        genericCapDraw_month = (genericCapex * y1Pct) / 12;
+        genericEqDraw_month = (genericEquity * y1Pct) / 12;
+        genericEqDrawExLand_month = (genericEquityExLand * y1Pct) / 12;
+      } else {
+        const remainingMonths = totalDevMonths - 12;
+        genericCapDraw_month = (genericCapex * (1 - y1Pct)) / remainingMonths;
+        genericEqDraw_month = (genericEquity * (1 - y1Pct)) / remainingMonths;
+        genericEqDrawExLand_month = (genericEquityExLand * (1 - y1Pct)) / remainingMonths;
+      }
+    } else {
+      genericCapDraw_month = genericCapex / totalDevMonths;
+      genericEqDraw_month = genericEquity / totalDevMonths;
+      genericEqDrawExLand_month = genericEquityExLand / totalDevMonths;
+    }
+
+    let m_consultantCost = 0;
+    if (md >= 2 && md <= 7) m_consultantCost = consultantCost / 6;
+
+    let m_licenseCost = 0;
+    if (md === 1) m_licenseCost = licenseCost;
+
+    capDrawBase_month = genericCapDraw_month + m_consultantCost + m_licenseCost;
+    eqDrawBase_month = genericEqDraw_month + (m_consultantCost + m_licenseCost) * (1 - effectiveLtv / 100);
+    eqDrawExLandBase_month = genericEqDrawExLand_month + (m_consultantCost + m_licenseCost) * (1 - effectiveLtv / 100);
+
+    const buildSpendMonthly = totalCapex > 0 ? (capDrawBase_month * buildCost) / totalCapex : 0;
+    const m_car = buildSpendMonthly * ((assumptions.devCarPct || 0) / 100);
+    
+    const constructionOpex_month =
+      (assumptions.constructionOpexMonthly || 0) + m_ga + m_car;
+
+    const m_eqDraw = -eqDrawBase_month - constructionOpex_month;
+    const m_eqDrawExLand = -eqDrawExLandBase_month - constructionOpex_month;
+    const m_unleveredCf = -capDrawBase_month - constructionOpex_month;
+
+    equityCfsMonthly.push(m_eqDraw);
+    equityCfsExLandMonthly.push(m_eqDrawExLand);
+    unleveredCfsMonthly.push(m_unleveredCf);
+    operatingCfsMonthly.push(m_eqDraw);
+    devGaMonthly.push(m_ga);
+    devCarMonthly.push(m_car);
+    equityCum += m_eqDraw;
+    equityCumExLand += m_eqDrawExLand;
+  }
+
+  // Push annual development summaries
   for (let i = 1; i <= devYears; i++) {
     const monthsThisYear = Math.min(
       12,
       Math.max(0, (assumptions.devDurationMonths || 24) - (i - 1) * 12),
     );
-    const overheadOpex =
-      (assumptions.constructionOpexMonthly || 0) * monthsThisYear +
-      carCost / devYears;
+    const ga_year = devGaMonthly.slice((i - 1) * 12, i * 12).reduce((a, b) => a + b, 0);
+    const car_year = devCarMonthly.slice((i - 1) * 12, i * 12).reduce((a, b) => a + b, 0);
+    const constructionOpex_year =
+      (assumptions.constructionOpexMonthly || 0) * monthsThisYear + ga_year + car_year;
 
-    let eqDrawBase, eqDrawExLandBase, capDrawBase;
+    let eqDrawBase_year, eqDrawExLandBase_year, capDrawBase_year;
     if (devYears > 1) {
       const y1Pct = (assumptions.equityDrawYear1Pct ?? 50) / 100;
       if (i === 1) {
-        eqDrawBase = totalEquity * y1Pct;
-        eqDrawExLandBase = totalEquityExLand * y1Pct;
-        capDrawBase = totalCapex * y1Pct;
+        eqDrawBase_year = totalEquity * y1Pct;
+        eqDrawExLandBase_year = totalEquityExLand * y1Pct;
+        capDrawBase_year = totalCapex * y1Pct;
       } else {
-        eqDrawBase = (totalEquity * (1 - y1Pct)) / (devYears - 1);
-        eqDrawExLandBase = (totalEquityExLand * (1 - y1Pct)) / (devYears - 1);
-        capDrawBase = (totalCapex * (1 - y1Pct)) / (devYears - 1);
+        eqDrawBase_year = (totalEquity * (1 - y1Pct)) / (devYears - 1);
+        eqDrawExLandBase_year = (totalEquityExLand * (1 - y1Pct)) / (devYears - 1);
+        capDrawBase_year = (totalCapex * (1 - y1Pct)) / (devYears - 1);
       }
     } else {
-      eqDrawBase = totalEquity;
-      eqDrawExLandBase = totalEquityExLand;
-      capDrawBase = totalCapex;
+      eqDrawBase_year = totalEquity;
+      eqDrawExLandBase_year = totalEquityExLand;
+      capDrawBase_year = totalCapex;
     }
 
-    const eqDraw = -eqDrawBase - overheadOpex;
-    const eqDrawExLand = -eqDrawExLandBase - overheadOpex;
-    equityCum += eqDraw;
-    equityCumExLand += eqDrawExLand;
-    equityCfs.push(eqDraw);
-    equityCfsExLand.push(eqDrawExLand);
-    unleveredCfs.push(-capDrawBase - overheadOpex);
-    operatingCfs.push(eqDraw);
+    const eqDraw_year = -eqDrawBase_year - constructionOpex_year;
+    const eqDrawExLand_year = -eqDrawExLandBase_year - constructionOpex_year;
+
+    let monthly = {
+      debtBalance: [], debtBalanceExLand: [], fcfe: [], fcfeExLand: [],
+      cumFcfe: [], cumFcfeExLand: [], devGa: [], devCar: [], ebitda: [],
+      ebt: [], netIncome: [], corpTax: [], ebtExLand: [], corpTaxExLand: [],
+      interest: [], interestExLand: [], dep: []
+    };
+    for (let m = 0; m < 12; m++) {
+      const mIdx = (i - 1) * 12 + m;
+      const m_fcfe = equityCfsMonthly[mIdx] || 0;
+      const m_fcfeExLand = equityCfsExLandMonthly[mIdx] || 0;
+      const m_ga = devGaMonthly[mIdx] || 0;
+      const m_car = devCarMonthly[mIdx] || 0;
+      const m_ebitda = -(m_ga + m_car);
+      
+      monthly.debtBalance.push(totalDebt);
+      monthly.debtBalanceExLand.push(totalDebtExLand);
+      monthly.fcfe.push(m_fcfe);
+      monthly.fcfeExLand.push(m_fcfeExLand);
+      monthly.devGa.push(m_ga);
+      monthly.devCar.push(m_car);
+      monthly.ebitda.push(m_ebitda);
+      monthly.ebt.push(m_ebitda);
+      monthly.ebtExLand.push(m_ebitda);
+      monthly.netIncome.push(m_ebitda);
+      monthly.corpTax.push(0);
+      monthly.corpTaxExLand.push(0);
+      monthly.interest.push(0);
+      monthly.interestExLand.push(0);
+      monthly.dep.push(0);
+      monthly.cumFcfe.push(equityCfsMonthly.slice(0, mIdx + 1).reduce((a, b) => a + b, 0));
+      monthly.cumFcfeExLand.push(equityCfsExLandMonthly.slice(0, mIdx + 1).reduce((a, b) => a + b, 0));
+    }
+
     annualData.push({
       year: `Year ${i}`,
       isOperating: false,
+      revenue: 0,
+      ebitda: -(ga_year + car_year),
+      ebt: -(ga_year + car_year),
+      ebtExLand: -(ga_year + car_year),
+      netIncome: -(ga_year + car_year),
+      corpTax: 0,
+      corpTaxExLand: 0,
+      interest: 0,
+      interestExLand: 0,
+      dep: 0,
       debtBalance: totalDebt,
       debtBalanceExLand: totalDebtExLand,
-      fcfe: eqDraw,
-      cumFcfe: equityCum,
-      fcfeExLand: eqDrawExLand,
-      cumFcfeExLand: equityCumExLand,
+      devGa: ga_year,
+      devCar: car_year,
+      fcfe: eqDraw_year,
+      cumFcfe: equityCfsMonthly.slice(0, i * 12).reduce((a, b) => a + b, 0),
+      fcfeExLand: eqDrawExLand_year,
+      cumFcfeExLand: equityCfsExLandMonthly.slice(0, i * 12).reduce((a, b) => a + b, 0),
+      monthly,
     });
   }
 
   let avgDscr = 0,
     avgYield = 0;
-  const opCoRents = opCoModelData.annualData
-    .filter((d) => d.isOperating)
-    .map((d) => d.rent);
+  const opCoRents = opCoModelData?.annualData
+    ?.filter((d) => d.isOperating)
+    ?.map((d) => d.rent) || [];
   let bvB = buildBasis,
     bvM = medEqBasis,
     bvI = infraBasis,
-    bvF = ffeBasis;
+    bvF = ffeBasis,
+    bvS = softCostBasis;
 
+  // Run operating phase month-by-month and group annually
   for (let i = 1; i <= projYears; i++) {
-    let revenue = assumptions.linkToOpCo
+    let annualRevenue = assumptions.linkToOpCo
       ? opCoRents[i - 1] || 0
       : assumptions.manualBaseRent *
         Math.pow(1 + assumptions.manualRentEscalation / 100, i - 1);
-    const maint = buildCost * (assumptions.maintRate / 100),
-      taxOp = totalCapex * (assumptions.propTaxRate / 100);
-    const overhead =
+    const maint_year = buildCost * (assumptions.maintRate / 100),
+      taxOp_year = totalCapex * (assumptions.propTaxRate / 100);
+    const overhead_year =
       assumptions.opOverheadMonthly *
       12 *
       Math.pow(1 + assumptions.opOverheadInc / 100, i - 1);
-    const reserve = revenue * (assumptions.ffeReservePct / 100);
 
-    let medEqLeaseOpex = 0;
-    let deferredCapex = 0;
-
-    if (assumptions.includeMedEq && assumptions.medEqProcurement === "lease") {
-      if (i < (assumptions.medEqPurchaseOpYear || 4)) {
-        medEqLeaseOpex = (assumptions.medEqLeaseMonthly || 0.375) * 12;
-      } else if (i === (assumptions.medEqPurchaseOpYear || 4)) {
-        deferredCapex = (assumptions.medEqPurchaseAmount || 150000) / 1000;
-        bvM += deferredCapex;
-        medEqBasis += deferredCapex;
-      }
-    }
-
-    const ebitda =
-      revenue - maint - taxOp - overhead - reserve - medEqLeaseOpex;
-
-    let interest = 0,
-      principal = 0,
-      interestExLand = 0,
-      principalExLand = 0;
-    if (outstandingDebt > 0.01) {
-      interest = outstandingDebt * (assumptions.interestRate / 100);
-      principal =
-        i <= ioYears ? 0 : Math.min(outstandingDebt, postIoPmt - interest);
-      outstandingDebt -= principal;
-    }
-    if (outstandingDebtExLand > 0.01) {
-      interestExLand = outstandingDebtExLand * (assumptions.interestRate / 100);
-      principalExLand =
-        i <= ioYears
-          ? 0
-          : Math.min(outstandingDebtExLand, postIoPmtExLand - interestExLand);
-      outstandingDebtExLand -= principalExLand;
-    }
-
-    const calcDep = (bv, basis, life, method) => {
-      if (method === "DDB") return Math.min(bv * (2 / life), bv);
-      return Math.min(basis / life, bv); // Default to Straight Line
+    let monthly = {
+      revenue: [], maintOpex: [], taxOpex: [], overheadOpex: [], ffeReserve: [], medEqLeaseOpex: [], ebitda: [],
+      interest: [], principal: [], interestExLand: [], principalExLand: [], dep: [], ebt: [],
+      corpTax: [], netIncome: [], deferredCapex: [], fcfe: [], cumFcfe: [], fcfeExLand: [], cumFcfeExLand: [], unleveredCf: [],
+      opFcfe: [], exit: [], exitExLand: [], debtBalance: [], debtBalanceExLand: [],
+      avgDscr: [], avgYield: [], yocExLand: []
     };
-    const d1 = calcDep(
-      bvB,
-      buildBasis,
-      assumptions.depLifeBuilding || 20,
-      assumptions.depMethodBuilding,
-    );
-    bvB -= d1;
-    const d2 =
-      assumptions.includeMedEq &&
-      assumptions.medEqProcurement === "lease" &&
-      i < (assumptions.medEqPurchaseOpYear || 4)
-        ? 0
-        : calcDep(
-            bvM,
-            medEqBasis,
-            assumptions.depLifeMedEq || 10,
-            assumptions.depMethodMedEq,
-          );
-    bvM -= d2;
-    const d3 = calcDep(
-      bvI,
-      infraBasis,
-      assumptions.depLifeInfra || 20,
-      assumptions.depMethodInfra,
-    );
-    bvI -= d3;
-    const d4 = calcDep(
-      bvF,
-      ffeBasis,
-      assumptions.depLifeFFE || 20,
-      assumptions.depMethodFFE,
-    );
-    bvF -= d4;
-    const dep = d1 + d2 + d3 + d4;
 
-    const ebt = ebitda - interest - dep;
-    const tax = ebt > 0 ? ebt * (assumptions.corporateTax / 100) : 0;
-    const netIncome = ebt - tax;
+    let year_revenue = 0,
+      year_maint = 0,
+      year_taxOp = 0,
+      year_overhead = 0,
+      year_reserve = 0,
+      year_medEqLease = 0,
+      year_ebitda = 0,
+      year_interest = 0,
+      year_principal = 0,
+      year_interestExLand = 0,
+      year_principalExLand = 0,
+      year_dep = 0,
+      year_ebt = 0,
+      year_tax = 0,
+      year_netIncome = 0,
+      year_deferredCapex = 0,
+      year_fcfe = 0,
+      year_fcfeExLand = 0,
+      year_unleveredCf = 0,
+      year_opFcfe = 0,
+      year_exit = 0,
+      year_exitExLand = 0;
 
-    let exit = 0,
-      exitExLand = 0,
-      exitUnlev = 0;
-    if (exitYear !== null && i === exitYear) {
-      let tv =
-        assumptions.exitMethod === "multiple"
-          ? ebitda * assumptions.exitMultiple
-          : ebitda / (assumptions.exitCapRate / 100);
-      if (tv > 0) {
-        const cost = tv * (assumptions.sellingCosts / 100);
-        exit = tv - cost - outstandingDebt;
-        exitUnlev = tv - cost;
-        exitExLand = tv - cost - outstandingDebtExLand - landCost;
-        outstandingDebt = 0;
-        outstandingDebtExLand = 0;
+    for (let m = 1; m <= 12; m++) {
+      // Distributed monthly:
+      let m_revenue = annualRevenue / 12;
+      const m_maint = maint_year / 12,
+        m_taxOp = taxOp_year / 12;
+      const m_overhead =
+        assumptions.opOverheadMonthly *
+        Math.pow(1 + assumptions.opOverheadInc / 100, i - 1);
+      const m_reserve = m_revenue * (assumptions.ffeReservePct / 100);
+
+      let m_medEqLeaseOpex = 0;
+      let m_deferredCapex = 0;
+
+      // Leased equipment monthly calculations
+      if (assumptions.includeMedEq && assumptions.medEqProcurement === "lease") {
+        if (i < (assumptions.medEqPurchaseOpYear || 4)) {
+          m_medEqLeaseOpex = assumptions.medEqLeaseMonthly || 0.375;
+        } else if (i === (assumptions.medEqPurchaseOpYear || 4)) {
+          if (m === 1) {
+            m_deferredCapex = (assumptions.medEqPurchaseAmount || 150000) / 1000;
+            bvM += m_deferredCapex;
+            medEqBasis += m_deferredCapex;
+          }
+        }
       }
+
+      const m_ebitda =
+        m_revenue - m_maint - m_taxOp - m_overhead - m_reserve - m_medEqLeaseOpex;
+
+      const m_op = (i - 1) * 12 + m;
+      let m_interest = 0,
+        m_principal = 0,
+        m_interestExLand = 0,
+        m_principalExLand = 0;
+
+      if (outstandingDebt > 0.01) {
+        m_interest = outstandingDebt * rateMonthly;
+        m_principal =
+          m_op <= ioGraceMonths ? 0 : Math.min(outstandingDebt, postIoPmtMonthly - m_interest);
+        outstandingDebt -= m_principal;
+      }
+      if (outstandingDebtExLand > 0.01) {
+        m_interestExLand = outstandingDebtExLand * rateMonthly;
+        m_principalExLand =
+          m_op <= ioGraceMonths
+            ? 0
+            : Math.min(outstandingDebtExLand, postIoPmtExLandMonthly - m_interestExLand);
+        outstandingDebtExLand -= m_principalExLand;
+      }
+
+      const calcDep = (bv, basis, life, method) => {
+        if (method === "DDB") return Math.min(bv * (2 / life), bv);
+        return Math.min(basis / life, bv);
+      };
+      const m_d1 = calcDep(
+        bvB,
+        buildBasis,
+        assumptions.depLifeBuilding || 20,
+        assumptions.depMethodBuilding,
+      ) / 12;
+      bvB -= m_d1;
+
+      const m_d2 =
+        assumptions.includeMedEq &&
+        assumptions.medEqProcurement === "lease" &&
+        i < (assumptions.medEqPurchaseOpYear || 4)
+          ? 0
+          : calcDep(
+              bvM,
+              medEqBasis,
+              assumptions.depLifeMedEq || 10,
+              assumptions.depMethodMedEq,
+            ) / 12;
+      bvM -= m_d2;
+
+      const m_d3 = calcDep(
+        bvI,
+        infraBasis,
+        assumptions.depLifeInfra || 20,
+        assumptions.depMethodInfra,
+      ) / 12;
+      bvI -= m_d3;
+
+      const m_d4 = calcDep(
+        bvF,
+        ffeBasis,
+        assumptions.depLifeFFE || 20,
+        assumptions.depMethodFFE,
+      ) / 12;
+      bvF -= m_d4;
+
+      const m_d5 = calcDep(
+        bvS,
+        softCostBasis,
+        assumptions.depLifeSoftCost || 20,
+        assumptions.depMethodSoftCost || "SL",
+      ) / 12;
+      bvS -= m_d5;
+
+      const m_dep = m_d1 + m_d2 + m_d3 + m_d4 + m_d5;
+
+      const m_ebt = m_ebitda - m_interest - m_dep;
+      const m_tax = m_ebt > 0 ? m_ebt * (assumptions.corporateTax / 100) : 0;
+      const m_netIncome = m_ebt - m_tax;
+
+      let m_exit = 0,
+        m_exitExLand = 0,
+        m_exitUnlev = 0;
+
+      if (exitYear !== null && i === exitYear && m === 12) {
+        let tv =
+          assumptions.exitMethod === "multiple"
+            ? (annualRevenue - maint_year - taxOp_year - overhead_year - annualRevenue * (assumptions.ffeReservePct / 100)) *
+              assumptions.exitMultiple
+            : (annualRevenue - maint_year - taxOp_year - overhead_year - annualRevenue * (assumptions.ffeReservePct / 100)) /
+              (assumptions.exitCapRate / 100);
+
+        if (tv > 0) {
+          const cost = tv * (assumptions.sellingCosts / 100);
+          m_exit = tv - cost - outstandingDebt;
+          m_exitUnlev = tv - cost;
+          m_exitExLand = tv - cost - outstandingDebtExLand - landCost;
+          outstandingDebt = 0;
+          outstandingDebtExLand = 0;
+        }
+      }
+
+      const m_unleveredCf =
+        m_ebitda -
+        m_dep -
+        (m_ebitda - m_dep > 0 ? (m_ebitda - m_dep) * (assumptions.corporateTax / 100) : 0) +
+        m_dep +
+        m_exitUnlev -
+        m_deferredCapex;
+
+      const m_opFcfe = m_netIncome + m_dep - m_principal - m_deferredCapex;
+      const m_fcfe = m_opFcfe + m_exit;
+
+      const m_fcfeExLand =
+        m_ebitda -
+        m_interestExLand -
+        m_dep -
+        (m_ebitda - m_interestExLand - m_dep > 0
+          ? (m_ebitda - m_interestExLand - m_dep) * (assumptions.corporateTax / 100)
+          : 0) +
+        m_dep -
+        m_principalExLand +
+        m_exitExLand -
+        m_deferredCapex;
+
+      equityCum += m_fcfe;
+      equityCumExLand += m_fcfeExLand;
+
+      equityCfsMonthly.push(m_fcfe);
+      equityCfsExLandMonthly.push(m_fcfeExLand);
+      unleveredCfsMonthly.push(m_unleveredCf);
+      operatingCfsMonthly.push(m_opFcfe);
+
+      // Store monthly snapshots
+      monthly.revenue.push(m_revenue);
+      monthly.maintOpex.push(m_maint);
+      monthly.taxOpex.push(m_taxOp);
+      monthly.overheadOpex.push(m_overhead);
+      monthly.ffeReserve.push(m_reserve);
+      monthly.medEqLeaseOpex.push(m_medEqLeaseOpex);
+      monthly.ebitda.push(m_ebitda);
+      monthly.interest.push(m_interest);
+      monthly.principal.push(m_principal);
+      monthly.interestExLand.push(m_interestExLand);
+      monthly.principalExLand.push(m_principalExLand);
+      monthly.dep.push(m_dep);
+      monthly.ebt.push(m_ebt);
+      monthly.corpTax.push(m_tax);
+      monthly.netIncome.push(m_netIncome);
+      monthly.deferredCapex.push(m_deferredCapex);
+      monthly.fcfe.push(m_fcfe);
+      monthly.cumFcfe.push(equityCum);
+      monthly.fcfeExLand.push(m_fcfeExLand);
+      monthly.cumFcfeExLand.push(equityCumExLand);
+      monthly.unleveredCf.push(m_unleveredCf);
+      monthly.opFcfe.push(m_opFcfe);
+      monthly.exit.push(m_exit);
+      monthly.exitExLand.push(m_exitExLand);
+      monthly.debtBalance.push(outstandingDebt);
+      monthly.debtBalanceExLand.push(outstandingDebtExLand);
+      monthly.avgDscr.push(m_interest + m_principal > 0 ? m_ebitda / (m_interest + m_principal) : 5);
+      monthly.avgYield.push(totalCapex > 0 ? (m_revenue * 12 / totalCapex) * 100 : 0);
+      monthly.yocExLand.push(totalCapexExLand > 0 ? (m_ebitda * 12 / totalCapexExLand) * 100 : 0);
+
+      year_revenue += m_revenue;
+      year_maint += m_maint;
+      year_taxOp += m_taxOp;
+      year_overhead += m_overhead;
+      year_reserve += m_reserve;
+      year_medEqLease += m_medEqLeaseOpex;
+      year_ebitda += m_ebitda;
+      year_interest += m_interest;
+      year_principal += m_principal;
+      year_interestExLand += m_interestExLand;
+      year_principalExLand += m_principalExLand;
+      year_dep += m_dep;
+      year_ebt += m_ebt;
+      year_tax += m_tax;
+      year_netIncome += m_netIncome;
+      year_deferredCapex += m_deferredCapex;
+      year_fcfe += m_fcfe;
+      year_fcfeExLand += m_fcfeExLand;
+      year_unleveredCf += m_unleveredCf;
+      year_opFcfe += m_opFcfe;
+      year_exit += m_exit;
+      year_exitExLand += m_exitExLand;
     }
 
-    const unleveredFcff =
-      ebitda -
-      dep -
-      (ebitda - dep > 0
-        ? (ebitda - dep) * (assumptions.corporateTax / 100)
-        : 0) +
-      dep +
-      exitUnlev -
-      deferredCapex;
-    unleveredCfs.push(unleveredFcff);
-
-    const opFcfe = netIncome + dep - principal - deferredCapex;
-    const fcfe = opFcfe + exit;
-    const fcfeExLand =
-      ebitda -
-      interestExLand -
-      dep -
-      (ebitda - interestExLand - dep > 0
-        ? (ebitda - interestExLand - dep) * (assumptions.corporateTax / 100)
-        : 0) +
-      dep -
-      principalExLand +
-      exitExLand -
-      deferredCapex;
-
-    equityCum += fcfe;
-    equityCumExLand += fcfeExLand;
-    equityCfs.push(fcfe);
-    equityCfsExLand.push(fcfeExLand);
-    operatingCfs.push(opFcfe);
-
-    const dscr = principal + interest > 0 ? ebitda / (principal + interest) : 0;
+    const dscr =
+      year_principal + year_interest > 0 ? year_ebitda / (year_principal + year_interest) : 0;
     avgDscr += dscr;
-    avgYield += totalEquity > 0 ? (opFcfe / totalEquity) * 100 : 0;
+    avgYield += totalEquity > 0 ? (year_opFcfe / totalEquity) * 100 : 0;
 
     annualData.push({
       year: `Year ${i + devYears}`,
       isOperating: true,
-      revenue,
-      maintOpex: maint,
-      taxOpex: taxOp,
-      overheadOpex: overhead,
-      ffeReserve: reserve,
-      medEqLeaseOpex,
-      ebitda,
-      interest,
-      principal,
+      revenue: year_revenue,
+      maintOpex: year_maint,
+      taxOpex: year_taxOp,
+      overheadOpex: year_overhead,
+      ffeReserve: year_reserve,
+      medEqLeaseOpex: year_medEqLease,
+      ebitda: year_ebitda,
+      interest: year_interest,
+      principal: year_principal,
       debtBalance: outstandingDebt,
-      dep,
-      corpTax: tax,
-      netIncome,
-      deferredCapex,
-      fcfe,
+      dep: year_dep,
+      corpTax: year_tax,
+      netIncome: year_netIncome,
+      deferredCapex: year_deferredCapex,
+      fcfe: year_fcfe,
       cumFcfe: equityCum,
       dscr,
-      yield: totalEquity > 0 ? (opFcfe / totalEquity) * 100 : 0,
-      fcfeExLand,
+      yield: totalEquity > 0 ? (year_opFcfe / totalEquity) * 100 : 0,
+      fcfeExLand: year_fcfeExLand,
       cumFcfeExLand: equityCumExLand,
-      interestExLand,
-      principalExLand,
+      interestExLand: year_interestExLand,
+      principalExLand: year_principalExLand,
       debtBalanceExLand: outstandingDebtExLand,
-      exit,
-      netExitProceeds: exit,
-      ebt,
-      netExitProceedsExLand: exitExLand,
-      ebtExLand: ebitda - interestExLand - dep,
+      exit: year_exit,
+      netExitProceeds: year_exit,
+      ebt: year_ebt,
+      netExitProceedsExLand: year_exitExLand,
+      ebtExLand: year_ebitda - year_interestExLand - year_dep,
       corpTaxExLand:
-        ebitda - interestExLand - dep > 0
-          ? (ebitda - interestExLand - dep) * (assumptions.corporateTax / 100)
+        year_ebitda - year_interestExLand - year_dep > 0
+          ? (year_ebitda - year_interestExLand - year_dep) * (assumptions.corporateTax / 100)
           : 0,
+      monthly,
     });
   }
 
@@ -1358,14 +1755,15 @@ const runPropCoEngine = (assumptions, opCoModelData, config) => {
       totalCapex,
       totalDebt,
       totalEquity,
-      irr: calculateIRR(equityCfs),
-      npv: calculateNPV(equityCfs, assumptions.discountRate),
-      unleveredIrr: calculateIRR(unleveredCfs),
-      unleveredNpv: calculateNPV(unleveredCfs, assumptions.discountRate),
-      irrExLand: calculateIRR(equityCfsExLand),
-      npvExLand: calculateNPV(equityCfsExLand, assumptions.discountRate),
-      payback: calculatePayback(equityCfs),
-      operatingPayback: calculatePayback(operatingCfs),
+      totalInvestment: Math.abs(equityCum) + totalDebt,
+      irr: calculateIRR(equityCfsMonthly, 'monthly'),
+      npv: calculateNPV(equityCfsMonthly, assumptions.discountRate, 'monthly'),
+      unleveredIrr: calculateIRR(unleveredCfsMonthly, 'monthly'),
+      unleveredNpv: calculateNPV(unleveredCfsMonthly, assumptions.discountRate, 'monthly'),
+      irrExLand: calculateIRR(equityCfsExLandMonthly, 'monthly'),
+      npvExLand: calculateNPV(equityCfsExLandMonthly, assumptions.discountRate, 'monthly'),
+      payback: calculatePayback(equityCfsMonthly, 'monthly'),
+      operatingPayback: calculatePayback(operatingCfsMonthly, 'monthly'),
       avgDscr: projYears > 0 ? avgDscr / projYears : 0,
       minDscr:
         operatingData.filter((d) => d.principal + d.interest > 0).length > 0
@@ -1377,7 +1775,7 @@ const runPropCoEngine = (assumptions, opCoModelData, config) => {
           : 0,
       avgYield: projYears > 0 ? avgYield / projYears : 0,
       moic:
-        equityCfs.reduce((acc, val) => (val > 0 ? acc + val : acc), 0) /
+        equityCfsMonthly.reduce((acc, val) => (val > 0 ? acc + val : acc), 0) /
         totalEquity,
       costPerBed:
         opCoModelData?.opsMetrics?.beds > 0
@@ -1396,6 +1794,8 @@ const runPropCoEngine = (assumptions, opCoModelData, config) => {
     },
     totals: {
       revenue: annualData.reduce((acc, d) => acc + (d.revenue || 0), 0),
+      devGa: annualData.reduce((acc, d) => acc + (d.devGa || 0), 0),
+      devCar: annualData.reduce((acc, d) => acc + (d.devCar || 0), 0),
       maintOpex: annualData.reduce((acc, d) => acc + (d.maintOpex || 0), 0),
       taxOpex: annualData.reduce((acc, d) => acc + (d.taxOpex || 0), 0),
       overheadOpex: annualData.reduce(
@@ -1460,7 +1860,13 @@ const runPropCoEngine = (assumptions, opCoModelData, config) => {
       vatCost,
       contingencyCost,
       sharingDevCost,
+      devGaCost: annualData.filter(d => !d.isOperating).reduce((acc, d) => acc + (d.devGa || 0), 0),
+      devCarCost: annualData.filter(d => !d.isOperating).reduce((acc, d) => acc + (d.devCar || 0), 0),
     },
+    equityCfsMonthly,
+    equityCfsExLandMonthly,
+    unleveredCfsMonthly,
+    operatingCfsMonthly,
   };
 };
 
@@ -1491,11 +1897,43 @@ const runConsolidatedEngine = (opCoData, propCoData, opCoAssumptions) => {
     const opCoFlow = opCoOperatingFlow + opCoExitFlow;
     const netFlow = propCoFlow + opCoFlow;
 
+    let monthly = {
+      propCoFlow: [], opCoOperatingFlow: [], opCoExitFlow: [], opCoFlow: [],
+      netFlow: [], cumCf: [], lookThroughRevenue: [], lookThroughEbitda: [],
+      lookThroughNetIncome: [], lookThroughMargin: []
+    };
+
+    const sharePct = (100 - opCoAssumptions.sharingPercentA) / 100;
+    for (let m = 0; m < 12; m++) {
+      const pSnapshot = pData.monthly || {};
+      const oSnapshot = oData.monthly || {};
+
+      const m_propCoFlow = (pSnapshot.fcfe || [])[m] || 0;
+      const m_opCoOperatingFlow = ((oSnapshot.pB_Outlay || [])[m] || 0) + ((oSnapshot.shareB || [])[m] || 0);
+      const m_opCoExitFlow = (oSnapshot.pB_Exit || [])[m] || 0;
+      const m_opCoFlow = m_opCoOperatingFlow + m_opCoExitFlow;
+      const m_netFlow = m_propCoFlow + m_opCoFlow;
+
+      const m_ltRev = ((pSnapshot.revenue || [])[m] || 0) + ((oSnapshot.totalRev || [])[m] || 0) * sharePct;
+      const m_ltEbitda = ((pSnapshot.ebitda || [])[m] || 0) + ((oSnapshot.ebitda || [])[m] || 0) * sharePct;
+      const m_ltNi = ((pSnapshot.netIncome || [])[m] || 0) + ((oSnapshot.netIncome || [])[m] || 0) * sharePct;
+
+      monthly.propCoFlow.push(m_propCoFlow);
+      monthly.opCoOperatingFlow.push(m_opCoOperatingFlow);
+      monthly.opCoExitFlow.push(m_opCoExitFlow);
+      monthly.opCoFlow.push(m_opCoFlow);
+      monthly.netFlow.push(m_netFlow);
+      monthly.cumCf.push(cumCf + monthly.netFlow.reduce((a, b) => a + b, 0));
+      monthly.lookThroughRevenue.push(m_ltRev);
+      monthly.lookThroughEbitda.push(m_ltEbitda);
+      monthly.lookThroughNetIncome.push(m_ltNi);
+      monthly.lookThroughMargin.push(m_ltRev > 0 ? (m_ltNi / m_ltRev) * 100 : 0);
+    }
+
     cumCf += netFlow;
     consolidatedCfs.push(netFlow);
 
     // Look-Through PnL Metrics
-    const sharePct = (100 - opCoAssumptions.sharingPercentA) / 100;
     const lookThroughRevenue =
       (pData.revenue || 0) + (oData.totalRev || 0) * sharePct;
     const lookThroughEbitda =
@@ -1530,6 +1968,7 @@ const runConsolidatedEngine = (opCoData, propCoData, opCoAssumptions) => {
       lookThroughEbitda,
       lookThroughNetIncome,
       lookThroughMargin,
+      monthly,
     });
   });
 
@@ -1560,17 +1999,29 @@ const runConsolidatedEngine = (opCoData, propCoData, opCoAssumptions) => {
       ? (totals.lookThroughNetIncome / totals.lookThroughRevenue) * 100
       : 0;
 
+  // Compile monthly consolidated cash flows for monthly compounding IRR/NPV
+  let consolidatedCfsMonthly = [];
+  const propCoCfs = propCoData.equityCfsMonthly || [];
+  const opCoCfs = opCoData.partnerBCfsMonthly || [];
+  const totalMonths = Math.max(propCoCfs.length, opCoCfs.length);
+
+  for (let m = 0; m < totalMonths; m++) {
+    const pCf = propCoCfs[m] || 0;
+    const oCf = opCoCfs[m] || 0;
+    consolidatedCfsMonthly.push(pCf + oCf);
+  }
+
   return {
     annualData,
     operatingData: annualData.filter((d) => d.isOperating),
     metrics: {
       totalEquity: totalConsolidatedEquity,
-      irr: calculateIRR(consolidatedCfs),
-      npv: calculateNPV(consolidatedCfs, opCoAssumptions.holdCoDiscountRate),
-      payback: calculatePayback(consolidatedCfs),
+      irr: calculateIRR(consolidatedCfsMonthly, 'monthly'),
+      npv: calculateNPV(consolidatedCfsMonthly, opCoAssumptions.holdCoDiscountRate, 'monthly'),
+      payback: calculatePayback(consolidatedCfsMonthly, 'monthly'),
       moic:
         totalConsolidatedEquity > 0
-          ? consolidatedCfs.reduce(
+          ? consolidatedCfsMonthly.reduce(
               (acc, val) => (val > 0 ? acc + val : acc),
               0,
             ) / totalConsolidatedEquity
@@ -1581,6 +2032,7 @@ const runConsolidatedEngine = (opCoData, propCoData, opCoAssumptions) => {
           : 0,
     },
     totals,
+    consolidatedCfsMonthly,
   };
 };
 
@@ -4494,7 +4946,7 @@ const InteractiveDemographicMap = memo(() => {
           }).catch(e => {
             console.error("Failed to load toll roads", e);
             if (!mapRef.current) return;
-            setLoadingStatus({ active: false, text: "Failed to load toll roads", isError: true });
+            setLoadingStatus({ active: false, text: "Failed to load toll roads (rate limited).", isError: false });
             setTimeout(() => setLoadingStatus({ active: false, text: "", isError: false }), 3000);
           });
       } else {
@@ -8672,17 +9124,17 @@ const PropCoDashboardView = memo(
                   </ResponsiveContainer>
                   <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
                     <span className="text-sm font-black text-[#1E2F31]">
-                      {formatNumber(data.metrics.totalCapex, 0)}B
+                      {formatNumber(data.metrics.totalInvestment, 0)}B
                     </span>
                   </div>
                 </div>
                 <div className="w-full grid grid-cols-2 gap-2 mt-4 text-center">
                   <div className="bg-[#EFEBE7] p-2 rounded border border-[#D8D8D8]">
                     <p className="text-[9px] font-bold uppercase text-[#4C4A4B] mb-1">
-                      Equity
+                      Total Equity
                     </p>
                     <p className="font-black text-[#1E2F31]">
-                      {formatCurrency(data.metrics.totalEquity)}
+                      {formatCurrency(Math.abs(data.annualData.filter(d => !d.isOperating).reduce((acc, d) => acc + (d.fcfe || 0), 0)))}
                     </p>
                   </div>
                   <div className="bg-[#D8D8D8]/30 p-2 rounded border border-[#D8D8D8]">
@@ -8723,6 +9175,10 @@ const PropCoDashboardView = memo(
                         amount: data.capexDetails.infraCost,
                       },
                       { label: "FF&E", amount: data.capexDetails.ffeCost },
+                      {
+                        label: "Sharing Dev.",
+                        amount: data.capexDetails.sharingDevCost,
+                      },
                     ].filter((d) => d.amount > 0)}
                   />
                   {data.capexDetails.medEqCost > 0 && (
@@ -8747,23 +9203,27 @@ const PropCoDashboardView = memo(
                         label: "Licenses & Permits",
                         amount: data.capexDetails.licenseCost,
                       },
-                      {
-                        label: "Sharing Development",
-                        amount: data.capexDetails.sharingDevCost,
-                      },
                       { label: "VAT", amount: data.capexDetails.vatCost },
                       {
                         label: "Contingency",
                         amount: data.capexDetails.contingencyCost,
                       },
+                      {
+                        label: "Dev. G&A",
+                        amount: data.capexDetails.devGaCost,
+                      },
+                      {
+                        label: "Dev. CAR",
+                        amount: data.capexDetails.devCarCost,
+                      },
                     ].filter((d) => d.amount > 0)}
                   />
                   <div className="flex justify-between items-center mt-2 pt-2 border-t-2 border-[#D8D8D8] px-2">
                     <span className="text-[10px] font-black text-[#1E2F31] uppercase tracking-widest">
-                      Total Uses (Capex)
+                      Total Project Cost
                     </span>
                     <span className="font-mono text-sm font-black text-[#1C6048]">
-                      {formatNumber(data.metrics.totalCapex, 1)} B
+                      {formatNumber(data.metrics.totalInvestment, 1)} B
                     </span>
                   </div>
                 </div>
@@ -8906,30 +9366,41 @@ const PropCoDashboardView = memo(
 const PropCoCascadeView = memo(({ data, onExport, viewResolution, setViewResolution }) => {
   const { columns, expandedYears, toggleYear } = useMonthlyColumns(data.annualData, viewResolution);
   const scrollRef = useRef(null);
+  const [showDevBudget, setShowDevBudget] = useState(true);
+
   return (
   <div className="space-y-6">
-    <div className="grid grid-cols-1 md:grid-cols-3 gap-6 animate-in slide-in-from-bottom-4 duration-500">
-      <div className="md:col-span-1 bg-white p-5 lg:p-6 rounded-2xl shadow-sm border border-[#D8D8D8] h-[calc(100vh-320px)] overflow-y-auto custom-scrollbar">
-        <h3 className="font-bold text-[#1E2F31] mb-4 flex items-center gap-2">
-          <Map size={18} className="text-[#1C6048]" /> Development Budget
-        </h3>
-        <div className="overflow-x-auto">
-          <table className="w-full text-[11px] text-left border-collapse">
-            <thead>
-              <tr className="bg-[#EFEBE7]">
-                <th className="px-4 py-2 border border-[#D8D8D8] text-[#1E2F31] font-bold rounded-tl">
-                  Component
-                </th>
-                <th className="px-4 py-2 border border-[#D8D8D8] text-[#1E2F31] font-bold text-right">
-                  Cost (B)
-                </th>
-                <th className="px-4 py-2 border border-[#D8D8D8] text-[#1E2F31] font-bold text-right rounded-tr">
-                  %
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              <CapexRow
+    <div className={`grid grid-cols-1 gap-6 animate-in slide-in-from-bottom-4 duration-500 ${showDevBudget ? 'md:grid-cols-3' : 'md:grid-cols-1'}`}>
+      {showDevBudget && (
+        <div className="md:col-span-1 bg-white p-5 lg:p-6 rounded-2xl shadow-sm border border-[#D8D8D8] h-[calc(100vh-320px)] overflow-y-auto custom-scrollbar">
+          <div className="flex justify-between items-center mb-4">
+            <h3 className="font-bold text-[#1E2F31] flex items-center gap-2">
+              <Map size={18} className="text-[#1C6048]" /> Development Budget
+            </h3>
+            <button 
+              onClick={() => setShowDevBudget(false)} 
+              className="text-[#8A8175] hover:text-[#1E2F31] text-[10px] uppercase font-bold tracking-wider"
+            >
+              Hide
+            </button>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-[11px] text-left border-collapse">
+              <thead>
+                <tr className="bg-[#EFEBE7]">
+                  <th className="px-4 py-2 border border-[#D8D8D8] text-[#1E2F31] font-bold rounded-tl">
+                    Component
+                  </th>
+                  <th className="px-4 py-2 border border-[#D8D8D8] text-[#1E2F31] font-bold text-right">
+                    Cost (B)
+                  </th>
+                  <th className="px-4 py-2 border border-[#D8D8D8] text-[#1E2F31] font-bold text-right rounded-tr">
+                    %
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                <CapexRow
                 label="Land Cost"
                 amount={data.capexDetails.landCost}
                 total={data.metrics.totalCapex}
@@ -8966,6 +9437,12 @@ const PropCoCascadeView = memo(({ data, onExport, viewResolution, setViewResolut
                 total={data.metrics.totalCapex}
                 isIndent
               />
+              <CapexRow
+                label="Sharing Dev."
+                amount={data.capexDetails.sharingDevCost}
+                total={data.metrics.totalCapex}
+                isIndent
+              />
 
               <CapexRow
                 label="Total Soft Costs"
@@ -8986,12 +9463,6 @@ const PropCoCascadeView = memo(({ data, onExport, viewResolution, setViewResolut
                 isIndent
               />
               <CapexRow
-                label="Sharing Dev."
-                amount={data.capexDetails.sharingDevCost}
-                total={data.metrics.totalCapex}
-                isIndent
-              />
-              <CapexRow
                 label="VAT"
                 amount={data.capexDetails.vatCost}
                 total={data.metrics.totalCapex}
@@ -9003,22 +9474,43 @@ const PropCoCascadeView = memo(({ data, onExport, viewResolution, setViewResolut
                 total={data.metrics.totalCapex}
                 isIndent
               />
+              <CapexRow
+                label="Dev. G&A"
+                amount={data.capexDetails.devGaCost}
+                total={data.metrics.totalCapex}
+                isIndent
+              />
+              <CapexRow
+                label="Dev. CAR"
+                amount={data.capexDetails.devCarCost}
+                total={data.metrics.totalCapex}
+                isIndent
+              />
 
               <CapexRow
-                label="TOTAL CAPEX"
-                amount={data.metrics.totalCapex}
-                total={data.metrics.totalCapex}
+                label="TOTAL INVESTMENT"
+                amount={data.metrics.totalInvestment}
+                total={data.metrics.totalInvestment}
                 isSubtotal
               />
             </tbody>
           </table>
         </div>
       </div>
+      )}
 
-      <div className="md:col-span-2 bg-white rounded-2xl shadow-sm border border-[#D8D8D8] overflow-hidden h-[calc(100vh-320px)] flex flex-col">
+      <div className={`${showDevBudget ? 'md:col-span-2' : 'md:col-span-1'} bg-white rounded-2xl shadow-sm border border-[#D8D8D8] overflow-hidden h-[calc(100vh-320px)] flex flex-col`}>
         <div className="p-4 bg-[#EFEBE7] border-b border-[#D8D8D8] flex justify-between items-center shrink-0">
           <h3 className="text-xs font-bold uppercase tracking-widest text-[#1E2F31] flex items-center gap-2">
             <List size={14} /> PropCo Cash Flow Detail
+            {!showDevBudget && (
+              <button 
+                onClick={() => setShowDevBudget(true)}
+                className="ml-2 px-2 py-0.5 border border-[#D8D8D8] bg-white rounded text-[#8A8175] hover:text-[#1E2F31] text-[9px] tracking-wider font-bold shadow-sm leading-tight inline-block flex-shrink-0"
+              >
+                Show Dev Budget
+              </button>
+            )}
           </h3>
           <div className="flex items-center gap-2">
             <div className="flex items-center bg-white p-0.5 rounded-md border border-[#D8D8D8] shadow-sm mr-2">
@@ -9106,6 +9598,20 @@ const PropCoCascadeView = memo(({ data, onExport, viewResolution, setViewResolut
                 data={columns}
                 dk="overheadOpex"
                 total={data.totals.overheadOpex}
+                isIndent
+              />
+              <TableRow
+                label="Dev. G&A Expense"
+                data={columns}
+                dk="devGa"
+                total={data.totals.devGa}
+                isIndent
+              />
+              <TableRow
+                label="Dev. CAR Expense"
+                data={columns}
+                dk="devCar"
+                total={data.totals.devCar}
                 isIndent
               />
               <TableRow
@@ -10233,29 +10739,30 @@ const PropCoSettingsView = memo(
   }) => {
     const buildCostForUi =
       (assumptions.buildArea * assumptions.buildCost) / 1000;
+    const medEqFullValueUi = assumptions.includeMedEq
+      ? (assumptions.capexMedEqQty * assumptions.capexMedEqPrice) / 1000
+      : 0;
     const medEqCostForUi =
-      assumptions.includeMedEq && assumptions.medEqProcurement !== "lease"
-        ? (assumptions.capexMedEqQty * assumptions.capexMedEqPrice) / 1000
-        : 0;
+      assumptions.medEqProcurement !== "lease" ? medEqFullValueUi : 0;
     const infraCostForUi =
       (assumptions.capexInfraQty * assumptions.capexInfraPrice) / 1000;
     const ffeCostForUi = assumptions.includeFFE
       ? (assumptions.capexFFEQty * assumptions.capexFFEPrice) / 1000
       : 0;
-    const coreCostForPctUi =
-      buildCostForUi + ffeCostForUi + medEqCostForUi + infraCostForUi;
-    const consultantCostUi =
-      coreCostForPctUi * ((assumptions.capexConsultantPct || 0) / 100);
-    const licenseCostUi =
-      coreCostForPctUi * ((assumptions.capexLicensePct || 0) / 100);
     const sharingDevCostForUi =
       (assumptions.capexSharingDevQty * assumptions.capexSharingDevPrice) /
       1000;
+    const consultantBaseUi = buildCostForUi + ffeCostForUi + infraCostForUi + medEqFullValueUi;
+    const licenseBaseUi = consultantBaseUi;
+    
+    const consultantCostUi =
+      consultantBaseUi * ((assumptions.capexConsultantPct || 0) / 100);
+    const licenseCostUi =
+      licenseBaseUi * ((assumptions.capexLicensePct || 0) / 100);
     const vatBaseUi =
       consultantCostUi +
       buildCostForUi +
       ffeCostForUi +
-      medEqCostForUi +
       infraCostForUi +
       sharingDevCostForUi;
     const vatCostUi = vatBaseUi * ((assumptions.capexVat || 0) / 100);
@@ -10264,7 +10771,6 @@ const PropCoSettingsView = memo(
       consultantCostUi +
       buildCostForUi +
       ffeCostForUi +
-      medEqCostForUi +
       infraCostForUi +
       sharingDevCostForUi +
       vatCostUi;
@@ -10599,6 +11105,14 @@ const PropCoSettingsView = memo(
               setLife={(v) => onChange("depLifeFFE", v)}
               isLocked={isLocked}
             />
+            <AssumptionDepreciationGroup
+              label="Soft Cost Amort."
+              methodVal={assumptions.depMethodSoftCost}
+              lifeVal={assumptions.depLifeSoftCost}
+              setMethod={(v) => onChange("depMethodSoftCost", v)}
+              setLife={(v) => onChange("depLifeSoftCost", v)}
+              isLocked={isLocked}
+            />
           </div>
           <div className="space-y-4">
             <SectionTitle
@@ -10627,13 +11141,18 @@ const PropCoSettingsView = memo(
               unit="B/Mo"
               isLocked={isLocked}
             />
-            <AssumptionRowCalculated
-              label="Const. All Risk (CAR)"
-              pctVal={assumptions.capexCarPct}
-              setPct={(v) => onChange("capexCarPct", v)}
-              calculatedVal={
-                buildCostForUi * ((assumptions.capexCarPct || 0) / 100)
-              }
+            <AssumptionRow
+              label="Dev. G&A (monthly)"
+              val={assumptions.devGaMonthly}
+              set={(v) => onChange("devGaMonthly", v)}
+              unit="B/Mo"
+              isLocked={isLocked}
+            />
+            <AssumptionRow
+              label="Dev. CAR (% of build)"
+              val={assumptions.devCarPct}
+              set={(v) => onChange("devCarPct", v)}
+              unit="% / Mo"
               isLocked={isLocked}
             />
             <AssumptionRow
@@ -11554,12 +12073,10 @@ const MasterTimelineView = memo(({ isPresenting }) => {
   return (
     <div className="w-full text-[#1E2F31] flex flex-col gap-6 relative animate-in fade-in duration-500 pb-12">
       {/* Diagonal Watermark Overlay */}
-      <div className="absolute inset-0 z-[100] flex items-center justify-center pointer-events-none overflow-hidden rounded-3xl">
-        <div className="transform -rotate-[20deg] px-8 md:scale-100 scale-75 origin-center w-full">
-          <p className="text-xl sm:text-2xl md:text-4xl lg:text-5xl font-black text-[#1E2F31]/10 uppercase tracking-widest text-center leading-tight select-none drop-shadow-sm">
-            Date and items have not been
-            <br />
-            filled out or updated yet
+      <div className="absolute top-12 left-0 right-0 z-[100] flex justify-center pointer-events-none overflow-hidden h-64">
+        <div className="transform -rotate-[8deg] w-[160%] shrink-0 whitespace-nowrap text-center pt-8">
+          <p className="text-lg sm:text-xl md:text-3xl lg:text-5xl font-black text-red-600/15 uppercase tracking-[0.4em] select-none">
+            Date and items have not been filled out or updated yet • Project Timeline Draft • Date and items have not been filled out or updated yet
           </p>
         </div>
       </div>
@@ -12556,7 +13073,9 @@ export const useMonthlyColumns = (annualData, viewResolution = 'annual') => {
              const isRate = ['bor', 'ebitdaMargin', 'netMargin', 'breakEvenBor', 'pA_Yield', 'pB_Yield', 'avgDscr', 'avgYield', 'moic', 'costPerBed', 'costPerSqm', 'yocExLand', 'irr', 'lpIrr', 'gpIrr', 'isOperating', 'year', 'colType', 'defaultLabel', 'isMonth', 'parentYear'];
              const isBalance = ['debtBalance', 'debtBalanceExLand'];
              Object.keys(d).forEach(k => {
-                if (!isRate.includes(k) && !isBalance.includes(k) && typeof d[k] === 'number') {
+                if (d.monthly && d.monthly[k] && Array.isArray(d.monthly[k])) {
+                   monthData[k] = d.monthly[k][m - 1];
+                } else if (!isRate.includes(k) && !isBalance.includes(k) && typeof d[k] === 'number') {
                    if (k === 'cumNI' || k === 'cumulativeRetainedEarnings' || k === 'pA_Cum' || k === 'pB_Cum' || k === 'cumFcfe' || k === 'cumFcfeExLand' || k === 'cumFreeCashFlow' || k === 'cumCf') {
                       let flowKey = '';
                       if (k === 'cumNI') flowKey = 'netIncome';
@@ -12840,6 +13359,7 @@ export default function App() {
   const handleGroupChange = useCallback((group) => {
     setActiveGroup(group);
     if (group === "context") setActiveTab("overview");
+    else if (group === "summary") setActiveTab("executive");
     else setActiveTab("dashboard");
   }, []);
 
@@ -13188,14 +13708,25 @@ export default function App() {
           {/* Group Switcher */}
           <div className="flex items-center gap-4 pt-3 border-b border-[#EFEBE7]">
             <button
+              onClick={() => handleGroupChange("summary")}
+              className={`pb-2 px-2 text-[11px] font-black uppercase tracking-widest transition-all relative ${activeGroup === "summary" ? "text-[#1C6048]" : "text-[#4C4A4B] opacity-50 hover:opacity-100"}`}
+            >
+              <div className="flex items-center gap-2">
+                <Briefcase size={14} /> Executive Summary
+              </div>
+              {activeGroup === "summary" && (
+                <div className="absolute bottom-0 left-0 right-0 h-1 bg-[#1C6048] rounded-t-full"></div>
+              )}
+            </button>
+            <button
               onClick={() => handleGroupChange("context")}
-              className={`pb-2 px-2 text-[11px] font-black uppercase tracking-widest transition-all relative ${activeGroup === "context" ? "text-[#1C6048]" : "text-[#4C4A4B] opacity-50 hover:opacity-100"}`}
+              className={`pb-2 px-2 text-[11px] font-black uppercase tracking-widest transition-all relative ${activeGroup === "context" ? "text-[#9B8B70]" : "text-[#4C4A4B] opacity-50 hover:opacity-100"}`}
             >
               <div className="flex items-center gap-2">
                 <FolderTree size={14} /> Strategic Foundation
               </div>
               {activeGroup === "context" && (
-                <div className="absolute bottom-0 left-0 right-0 h-1 bg-[#1C6048] rounded-t-full"></div>
+                <div className="absolute bottom-0 left-0 right-0 h-1 bg-[#9B8B70] rounded-t-full"></div>
               )}
             </button>
             <button
@@ -13216,7 +13747,9 @@ export default function App() {
           >
             <div>
               <h1 className="text-xl font-bold flex items-center gap-2 text-[#1E2F31]">
-                {activeTab === "overview" ? (
+                {activeTab === "executive" ? (
+                  <Briefcase className="text-[#9B8B70]" />
+                ) : activeTab === "overview" ? (
                   <Info className="text-[#1C6048]" />
                 ) : activeTab === "study" ? (
                   <BookOpen className="text-[#1C6048]" />
@@ -13231,7 +13764,9 @@ export default function App() {
                 ) : (
                   <Layers className="text-[#1E2F31]" />
                 )}
-                {activeTab === "overview"
+                {activeTab === "executive"
+                  ? "Executive Sandbox"
+                  : activeTab === "overview"
                   ? "Project Context"
                   : activeTab === "study"
                     ? "Feasibility Study"
@@ -13249,7 +13784,14 @@ export default function App() {
 
             {/* SECONDARY LAYER NAV (Tabs) */}
             <div className="flex p-1 bg-[#EFEBE7] rounded-lg gap-1 overflow-x-auto border border-[#D8D8D8] max-w-full items-center">
-              {activeGroup === "context" ? (
+              {activeGroup === "summary" ? (
+                <NavButton
+                  active={activeTab === "executive"}
+                  onClick={() => setActiveTab("executive")}
+                  icon={<Briefcase size={14} />}
+                  label="Brainstorm Sandbox"
+                />
+              ) : activeGroup === "context" ? (
                 <>
                   <NavButton
                     active={activeTab === "overview"}
@@ -13356,6 +13898,9 @@ export default function App() {
         </div>
         )}
 
+        {activeTab === "executive" && (
+          <ExecutiveSummaryView isPresenting={isPresenting} />
+        )}
         {activeTab === "overview" && (
           <ProjectOverviewView
             info={projectInfo}
