@@ -103,6 +103,7 @@ import {
   CheckCircle2,
   HelpCircle,
   Zap,
+  AlertTriangle,
 } from "lucide-react";
 import { ExecutiveSummaryView } from "./ExecutiveSummaryView";
 
@@ -264,8 +265,8 @@ const INITIAL_GROUPS = [
       {
         id: "t4",
         name: "Hospital Clearances (IMB)",
-        start: 8,
-        duration: 4,
+        start: 4,
+        duration: 6,
         progress: 0,
         owner: "Legal Team",
         cost: 1.5,
@@ -276,8 +277,8 @@ const INITIAL_GROUPS = [
       {
         id: "t5",
         name: "BAPETEN Vault Licence",
-        start: 9,
-        duration: 8,
+        start: 13,
+        duration: 3,
         progress: 0,
         owner: "Nuclear Physicist / Legal",
         cost: 3.5,
@@ -296,8 +297,8 @@ const INITIAL_GROUPS = [
       {
         id: "t6",
         name: "Main Structure & Core",
-        start: 13,
-        duration: 14,
+        start: 10,
+        duration: 9,
         progress: 0,
         owner: "EPC Contractor",
         cost: 87.0,
@@ -308,8 +309,8 @@ const INITIAL_GROUPS = [
       {
         id: "t7",
         name: "Interior Fit-Out & MEP",
-        start: 25,
-        duration: 7,
+        start: 16,
+        duration: 6,
         progress: 0,
         owner: "Fit-Out Lead",
         cost: 38.0,
@@ -328,8 +329,8 @@ const INITIAL_GROUPS = [
       {
         id: "t10",
         name: "Oncology Asset Lease",
-        start: 22,
-        duration: 5,
+        start: 16,
+        duration: 3,
         progress: 0,
         owner: "Procurement Board",
         cost: 45.0,
@@ -340,8 +341,8 @@ const INITIAL_GROUPS = [
       {
         id: "t11",
         name: "Machinery Rigging & Fit",
-        start: 29,
-        duration: 4,
+        start: 19,
+        duration: 3,
         progress: 0,
         owner: "Install Engineers",
         cost: 8.0,
@@ -352,8 +353,8 @@ const INITIAL_GROUPS = [
       {
         id: "t12",
         name: "Testing & Staff Drills",
-        start: 32,
-        duration: 3,
+        start: 19,
+        duration: 6,
         progress: 0,
         owner: "Clinical Director",
         cost: 4.5,
@@ -364,8 +365,8 @@ const INITIAL_GROUPS = [
       {
         id: "t13",
         name: "Commercial Opening",
-        start: 35,
-        duration: 2,
+        start: 25,
+        duration: 1,
         progress: 0,
         owner: "Operations GM",
         cost: 6.0,
@@ -10202,156 +10203,363 @@ const ConsolidatedDashboardView = memo(
 const ConsolidatedCascadeView = memo(({ data, viewResolution, setViewResolution }) => {
   const { columns, expandedYears, toggleYear } = useMonthlyColumns(data.annualData, viewResolution);
   const scrollRef = useRef(null);
+
+  const chartData = useMemo(() => {
+    let cumInflow = 0;
+    let cumOutflow = 0;
+    
+    return data.annualData.map((d) => {
+      const year = d.year;
+      
+      // Calculate inflows (positive occurrences of individual cash flow items)
+      const propCoIn = d.propCoFlow > 0 ? d.propCoFlow : 0;
+      const opCoOpIn = d.opCoOperatingFlow > 0 ? d.opCoOperatingFlow : 0;
+      const opCoExitIn = d.opCoExitFlow > 0 ? d.opCoExitFlow : 0;
+      const yrInflow = propCoIn + opCoOpIn + opCoExitIn;
+      
+      // Calculate outflows (negative occurrences of individual cash flow items, converted to positive number for heights)
+      const propCoOut = d.propCoFlow < 0 ? Math.abs(d.propCoFlow) : 0;
+      const opCoOpOut = d.opCoOperatingFlow < 0 ? Math.abs(d.opCoOperatingFlow) : 0;
+      const opCoExitOut = d.opCoExitFlow < 0 ? Math.abs(d.opCoExitFlow) : 0;
+      const yrOutflow = propCoOut + opCoOpOut + opCoExitOut;
+      
+      cumInflow += yrInflow;
+      cumOutflow += yrOutflow;
+      
+      return {
+        year,
+        inflow: Number(yrInflow.toFixed(2)),
+        outflow: Number(yrOutflow.toFixed(2)),
+        cumInflow: Number(cumInflow.toFixed(2)),
+        cumOutflow: Number(cumOutflow.toFixed(2)),
+        netFlow: Number(d.netFlow.toFixed(2)),
+      };
+    });
+  }, [data.annualData]);
+
+  const stats = useMemo(() => {
+    let totalInjections = 0;
+    let totalReturns = 0;
+    
+    data.annualData.forEach((d) => {
+      const propCoIn = d.propCoFlow > 0 ? d.propCoFlow : 0;
+      const opCoOpIn = d.opCoOperatingFlow > 0 ? d.opCoOperatingFlow : 0;
+      const opCoExitIn = d.opCoExitFlow > 0 ? d.opCoExitFlow : 0;
+      totalReturns += (propCoIn + opCoOpIn + opCoExitIn);
+      
+      const propCoOut = d.propCoFlow < 0 ? Math.abs(d.propCoFlow) : 0;
+      const opCoOpOut = d.opCoOperatingFlow < 0 ? Math.abs(d.opCoOperatingFlow) : 0;
+      const opCoExitOut = d.opCoExitFlow < 0 ? Math.abs(d.opCoExitFlow) : 0;
+      totalInjections += (propCoOut + opCoOpOut + opCoExitOut);
+    });
+    
+    // Fallback if zero to avoid dividing by 0
+    const ratio = totalInjections > 0 ? (totalReturns / totalInjections) : 0;
+    const netSurplus = totalReturns - totalInjections;
+    
+    return {
+      totalInjections,
+      totalReturns,
+      ratio,
+      netSurplus
+    };
+  }, [data.annualData]);
+
   return (
-  <div className="bg-white rounded-2xl shadow-sm border border-[#D8D8D8] overflow-hidden h-[calc(100vh-320px)] flex flex-col">
-    <div className="p-4 bg-[#EFEBE7] border-b border-[#D8D8D8] flex justify-between items-center shrink-0">
-      <h3 className="text-xs font-bold uppercase tracking-widest text-[#1E2F31] flex items-center gap-2">
-        <List size={14} /> Consolidated HoldCo Waterfall
-      </h3>
-      <div className="flex items-center gap-2">
-        <div className="flex items-center bg-white p-0.5 rounded-md border border-[#D8D8D8] shadow-sm mr-2">
-          <button
-            onClick={() => setViewResolution('annual')}
-            className={`px-2.5 py-1 text-[9px] font-bold uppercase tracking-wider rounded transition-all ${viewResolution === 'annual' ? 'bg-[#1C6048] text-white' : 'text-[#8A8175] hover:text-[#1E2F31] hover:bg-[#F9F8F6]'}`}
-          >
-            Annual
-          </button>
-          <button
-            onClick={() => setViewResolution('monthly')}
-            className={`px-2.5 py-1 text-[9px] font-bold uppercase tracking-wider rounded transition-all ${viewResolution === 'monthly' ? 'bg-[#9B8B70] text-white' : 'text-[#8A8175] hover:text-[#1E2F31] hover:bg-[#F9F8F6]'}`}
-          >
-            Monthly
-          </button>
+    <div className="space-y-6">
+      {/* Detailed HoldCo Waterfall Panel */}
+      <div className="bg-white rounded-2xl shadow-sm border border-[#D8D8D8] overflow-hidden max-h-[calc(100vh-320px)] h-fit flex flex-col">
+        <div className="p-4 bg-[#EFEBE7] border-b border-[#D8D8D8] flex justify-between items-center shrink-0">
+          <h3 className="text-xs font-bold uppercase tracking-widest text-[#1E2F31] flex items-center gap-2">
+            <List size={14} /> Consolidated HoldCo Waterfall
+          </h3>
+          <div className="flex items-center gap-2">
+            <div className="flex items-center bg-white p-0.5 rounded-md border border-[#D8D8D8] shadow-sm mr-2">
+              <button
+                onClick={() => setViewResolution('annual')}
+                className={`px-2.5 py-1 text-[9px] font-bold uppercase tracking-wider rounded transition-all ${viewResolution === 'annual' ? 'bg-[#1C6048] text-white' : 'text-[#8A8175] hover:text-[#1E2F31] hover:bg-[#F9F8F6]'}`}
+              >
+                Annual
+              </button>
+              <button
+                onClick={() => setViewResolution('monthly')}
+                className={`px-2.5 py-1 text-[9px] font-bold uppercase tracking-wider rounded transition-all ${viewResolution === 'monthly' ? 'bg-[#9B8B70] text-white' : 'text-[#8A8175] hover:text-[#1E2F31] hover:bg-[#F9F8F6]'}`}
+              >
+                Monthly
+              </button>
+            </div>
+            <button onClick={() => scrollRef.current?.scrollBy({ left: -300, behavior: 'smooth' })} className="p-1 rounded bg-white border border-[#D8D8D8] text-[#1E2F31] shadow-sm hover:bg-[#F9F8F6]">
+              <ChevronLeft size={13} strokeWidth={2.5} />
+            </button>
+            <button onClick={() => scrollRef.current?.scrollBy({ left: 300, behavior: 'smooth' })} className="p-1 rounded bg-white border border-[#D8D8D8] text-[#1E2F31] shadow-sm hover:bg-[#F9F8F6]">
+              <ChevronRight size={13} strokeWidth={2.5} />
+            </button>
+            <span className="text-[10px] bg-white text-[#4C4A4B] border border-[#D8D8D8] px-2 py-1 rounded font-bold uppercase shadow-sm">
+              IDR Billions
+            </span>
+          </div>
         </div>
-        <button onClick={() => scrollRef.current?.scrollBy({ left: -300, behavior: 'smooth' })} className="p-1 rounded bg-white border border-[#D8D8D8] text-[#1E2F31] shadow-sm hover:bg-[#F9F8F6]">
-          <ChevronLeft size={13} strokeWidth={2.5} />
-        </button>
-        <button onClick={() => scrollRef.current?.scrollBy({ left: 300, behavior: 'smooth' })} className="p-1 rounded bg-white border border-[#D8D8D8] text-[#1E2F31] shadow-sm hover:bg-[#F9F8F6]">
-          <ChevronRight size={13} strokeWidth={2.5} />
-        </button>
-        <span className="text-[10px] bg-white text-[#4C4A4B] border border-[#D8D8D8] px-2 py-1 rounded font-bold uppercase shadow-sm">
-          IDR Billions
-        </span>
+        <div ref={scrollRef} className="overflow-auto min-h-0 flex-1">
+          <table className="w-full text-[11px] text-left border-separate border-spacing-0 min-w-[1000px]">
+            <thead className="bg-[#EFEBE7] font-bold sticky top-0 z-20 shadow-md">
+              <tr>
+                <th className="px-4 py-3 border-b-2 border-r border-[#D8D8D8] sticky left-0 top-0 bg-[#EFEBE7] z-30 w-[260px] shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)] text-[#1E2F31]">
+                  Line Item
+                </th>
+                {columns.map((col, i) => (
+                  <th
+                    key={i}
+                    onClick={col.colType === 'year' ? () => toggleYear(col.defaultLabel) : undefined}
+                    className={`px-3 py-3 text-right border-b-2 border-r border-[#D8D8D8] ${
+                      col.colType === 'year' ? 'cursor-pointer hover:bg-white font-black underline decoration-dashed underline-offset-4 ' : 'font-medium text-[10px] '
+                    } bg-[#EFEBE7] ${!col.isOperating ? "text-[#9B8B70]" : "text-[#1E2F31]"} ${col.isMonth ? 'min-w-[65px] whitespace-nowrap' : 'min-w-[90px]'}`}
+                  >
+                    {col.colType === 'year' ? (
+                       <div className="flex items-center justify-end gap-1">
+                         {expandedYears[col.defaultLabel] ? "-" : "+"}
+                         {String(col.defaultLabel)}
+                       </div>
+                    ) : (
+                       <div className="text-center w-full">{String(col.defaultLabel)}</div>
+                    )}
+                  </th>
+                ))}
+                <th className="px-4 py-3 text-right bg-[#EFEBE7] text-[#1E2F31] sticky right-0 top-0 z-30 border-l border-b-2 border-[#D8D8D8] shadow-[-2px_0_5px_-2px_rgba(0,0,0,0.1)]">
+                  Total
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              <TableSection
+                title="A. Component Cash Flows"
+                colSpan={columns.length + 2}
+              />
+              <TableRow
+                label="PropCo FCFE (100%)"
+                data={columns}
+                dk="propCoFlow"
+                total={data.totals.propCoFlow}
+                isIndent
+              />
+              <TableRow
+                label="OpCo Dividend (49%)"
+                data={columns}
+                dk="opCoOperatingFlow"
+                total={data.totals.opCoOperatingFlow}
+                isIndent
+              />
+              <TableRow
+                label="OpCo Exit Proceeds (49%)"
+                data={columns}
+                dk="opCoExitFlow"
+                total={data.totals.opCoExitFlow}
+                isIndent
+              />
+
+              <TableSection
+                title="B. Consolidated Position"
+                colSpan={columns.length + 2}
+                type="emerald"
+              />
+              <TableRow
+                label="NET COMBINED CASH FLOW"
+                data={columns}
+                dk="netFlow"
+                total={data.totals.netFlow}
+                highlight
+                emerald
+              />
+              <TableRow
+                label="Cumulative Net Position"
+                data={columns}
+                dk="cumCf"
+                highlight
+                crossover
+                bold
+                indigo
+              />
+
+              <TableSection
+                title="C. Managerial Look-Through PnL"
+                colSpan={columns.length + 2}
+              />
+              <TableRow
+                label="Look-Through Revenue"
+                data={columns}
+                dk="lookThroughRevenue"
+                total={data.totals.lookThroughRevenue}
+                isIndent
+              />
+              <TableRow
+                label="Look-Through EBITDA"
+                data={columns}
+                dk="lookThroughEbitda"
+                total={data.totals.lookThroughEbitda}
+                isIndent
+              />
+              <TableRow
+                label="Look-Through Net Income"
+                data={columns}
+                dk="lookThroughNetIncome"
+                total={data.totals.lookThroughNetIncome}
+                highlight
+              />
+              <TableRow
+                label="Blended Net Margin (%)"
+                data={columns}
+                dk="lookThroughMargin"
+                total={data.totals.lookThroughMargin}
+                highlight
+                indigo
+              />
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* Mini-Bento Visual Summary Widget */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Left Grid: Group Cumulative Flow Tracker Chart */}
+        <div className="lg:col-span-2 bg-white p-5 rounded-2xl shadow-sm border border-[#D8D8D8] flex flex-col justify-between">
+          <div>
+            <h4 className="text-xs font-bold uppercase tracking-widest text-[#1E2F31] mb-1 flex items-center gap-2">
+              <TrendingUp size={14} className="text-[#1C6048]" /> Group Cumulative Flow Tracker
+            </h4>
+            <p className="text-[10px] text-[#4C4A4B] font-medium leading-relaxed mb-4">
+              Tracks year-on-year cumulative capital inflows (dividends + proceeds) relative to capital outflows (equity outlays) alongside yearly net cash flows.
+            </p>
+          </div>
+
+          <div className="h-[210px] w-full mt-2">
+            <ResponsiveContainer width="100%" height="100%">
+              <ComposedChart data={chartData} margin={{ top: 10, right: 10, left: -15, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#F1F1F1" vertical={false} />
+                <XAxis 
+                  dataKey="year" 
+                  tickLine={false} 
+                  axisLine={false} 
+                  tick={{ fontSize: 9, fill: "#8A8175", fontWeight: "bold", fontFamily: "JetBrains Mono" }} 
+                />
+                <YAxis 
+                  tickLine={false} 
+                  axisLine={false} 
+                  tick={{ fontSize: 9, fill: "#8A8175", fontWeight: "bold", fontFamily: "JetBrains Mono" }}
+                  tickFormatter={(v) => `Rp${Math.abs(v).toFixed(0)}B`}
+                />
+                <Tooltip 
+                  contentStyle={{ backgroundColor: "#1E2F31", borderRadius: "12px", border: "none", color: "#FFF", fontSize: "10px", fontFamily: "JetBrains Mono" }}
+                  formatter={(value, name) => {
+                    const formattedVal = `IDR ${Number(value).toFixed(2)}B`;
+                    if (name === "cumInflow") return [formattedVal, "Cumulative Inflow"];
+                    if (name === "cumOutflow") return [formattedVal, "Cumulative Outflow"];
+                    return [formattedVal, "Net Year Flow"];
+                  }}
+                  labelFormatter={(label) => `Year: ${label}`}
+                />
+                <Legend 
+                  verticalAlign="top" 
+                  height={28} 
+                  iconSize={7}
+                  iconType="circle"
+                  wrapperStyle={{ fontSize: "9px", fontWeight: "bold", color: "#4C4A4B", textTransform: "uppercase" }}
+                />
+                <Bar 
+                  name="netFlow" 
+                  dataKey="netFlow" 
+                  barSize={12} 
+                  radius={[3, 3, 0, 0]}
+                >
+                  {chartData.map((entry, index) => (
+                    <Cell key={`cell-${index}`} fill={entry.netFlow >= 0 ? "#1C6048" : "#B85A38"} />
+                  ))}
+                </Bar>
+                <Line 
+                  type="monotone" 
+                  name="cumInflow" 
+                  dataKey="cumInflow" 
+                  stroke="#9B8B70" 
+                  strokeWidth={2.5} 
+                  dot={{ r: 2.5, stroke: "#9B8B70", fill: "#FFF", strokeWidth: 1.5 }} 
+                  activeDot={{ r: 4 }} 
+                />
+                <Line 
+                  type="monotone" 
+                  name="cumOutflow" 
+                  dataKey="cumOutflow" 
+                  stroke="#1E2F31" 
+                  strokeWidth={2.5} 
+                  strokeDasharray="4 4"
+                  dot={{ r: 2.5, stroke: "#1E2F31", fill: "#FFF", strokeWidth: 1.5 }} 
+                  activeDot={{ r: 4 }} 
+                />
+              </ComposedChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+
+        {/* Right Grid: Bento Metrics Yield Audit Card */}
+        <div className="bg-[#1E2F31] text-[#EFEBE7] p-5 rounded-2xl shadow-sm flex flex-col justify-between border border-[#1E2F31]">
+          <div className="space-y-4">
+            <div>
+              <h4 className="text-xs font-bold uppercase tracking-widest text-[#9B8B70] mb-1">
+                Yield Cascade Audit
+              </h4>
+              <p className="text-[10px] text-white/60 font-medium leading-relaxed">
+                Look-through combined position capturing clinical profits & estate asset distributions.
+              </p>
+            </div>
+
+            <div className="space-y-4 pt-4 border-t border-white/10">
+              <div className="flex justify-between items-center">
+                <div>
+                  <span className="text-[9px] uppercase tracking-wider text-[#9B8B70] font-bold block">Equity Outlay (Outflow)</span>
+                  <span className="text-sm font-bold font-mono text-white">
+                    IDR {formatNumber(stats.totalInjections, 2)}B
+                  </span>
+                </div>
+                <div className="text-right">
+                  <span className="text-[9px] uppercase tracking-wider text-[#9B8B70] font-bold block">Distributions (Inflow)</span>
+                  <span className="text-sm font-bold font-mono text-[#99B6AA]">
+                    IDR {formatNumber(stats.totalReturns, 2)}B
+                  </span>
+                </div>
+              </div>
+
+              <div className="pt-2 border-t border-white/5">
+                <span className="text-[9px] uppercase tracking-wider text-[#9B8B70] font-bold block">Look-Through Multiple</span>
+                <div className="flex items-baseline gap-2 mt-0.5">
+                  <span className="text-xl font-black text-white font-mono">
+                    {formatNumber(stats.ratio, 2)}x
+                  </span>
+                  <span className="text-[9px] font-medium text-white/50">Cumulative Factor</span>
+                </div>
+                <div className="w-full bg-white/10 h-1 rounded-full overflow-hidden mt-1.5">
+                  <div 
+                    className="bg-[#1C6048] h-full rounded-full transition-all duration-1000" 
+                    style={{ width: `${Math.min(100, stats.ratio * 33)}%` }}
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="pt-4 border-t border-white/10">
+            <div className="flex justify-between items-center bg-white/5 p-3 rounded-xl border border-white/5">
+              <div>
+                <span className="text-[9px] uppercase tracking-wider text-white/50 font-bold block">Net Lifetime Surplus</span>
+                <span className="text-xs font-bold font-mono text-[#99B6AA]">
+                  {stats.netSurplus >= 0 ? "+" : "-"}IDR {formatNumber(Math.abs(stats.netSurplus), 2)}B
+                </span>
+              </div>
+              <div className={`p-1.5 rounded-lg ${stats.netSurplus >= 0 ? "bg-[#1C6048]/20 text-[#99B6AA]" : "bg-red-500/20 text-red-400"}`}>
+                <TrendingUp size={13} />
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
-    <div ref={scrollRef} className="overflow-auto min-h-0 flex-1">
-      <table className="w-full text-[11px] text-left border-separate border-spacing-0 min-w-[1000px]">
-        <thead className="bg-[#EFEBE7] font-bold sticky top-0 z-20 shadow-md">
-          <tr>
-            <th className="px-4 py-3 border-b-2 border-r border-[#D8D8D8] sticky left-0 top-0 bg-[#EFEBE7] z-30 w-[260px] shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)] text-[#1E2F31]">
-              Line Item
-            </th>
-            {columns.map((col, i) => (
-              <th
-                key={i}
-                onClick={col.colType === 'year' ? () => toggleYear(col.defaultLabel) : undefined}
-                className={`px-3 py-3 text-right border-b-2 border-r border-[#D8D8D8] ${
-                  col.colType === 'year' ? 'cursor-pointer hover:bg-white font-black underline decoration-dashed underline-offset-4 ' : 'font-medium text-[10px] '
-                } bg-[#EFEBE7] ${!col.isOperating ? "text-[#9B8B70]" : "text-[#1E2F31]"} ${col.isMonth ? 'min-w-[65px] whitespace-nowrap' : 'min-w-[90px]'}`}
-              >
-                {col.colType === 'year' ? (
-                   <div className="flex items-center justify-end gap-1">
-                     {expandedYears[col.defaultLabel] ? "-" : "+"}
-                     {String(col.defaultLabel)}
-                   </div>
-                ) : (
-                   <div className="text-center w-full">{String(col.defaultLabel)}</div>
-                )}
-              </th>
-            ))}
-            <th className="px-4 py-3 text-right bg-[#EFEBE7] text-[#1E2F31] sticky right-0 top-0 z-30 border-l border-b-2 border-[#D8D8D8] shadow-[-2px_0_5px_-2px_rgba(0,0,0,0.1)]">
-              Total
-            </th>
-          </tr>
-        </thead>
-        <tbody>
-          <TableSection
-            title="A. Component Cash Flows"
-            colSpan={columns.length + 2}
-          />
-          <TableRow
-            label="PropCo FCFE (100%)"
-            data={columns}
-            dk="propCoFlow"
-            total={data.totals.propCoFlow}
-            isIndent
-          />
-          <TableRow
-            label="OpCo Dividend (49%)"
-            data={columns}
-            dk="opCoOperatingFlow"
-            total={data.totals.opCoOperatingFlow}
-            isIndent
-          />
-          <TableRow
-            label="OpCo Exit Proceeds (49%)"
-            data={columns}
-            dk="opCoExitFlow"
-            total={data.totals.opCoExitFlow}
-            isIndent
-          />
-
-          <TableSection
-            title="B. Consolidated Position"
-            colSpan={columns.length + 2}
-            type="emerald"
-          />
-          <TableRow
-            label="NET COMBINED CASH FLOW"
-            data={columns}
-            dk="netFlow"
-            total={data.totals.netFlow}
-            highlight
-            emerald
-          />
-          <TableRow
-            label="Cumulative Net Position"
-            data={columns}
-            dk="cumCf"
-            highlight
-            crossover
-            bold
-            indigo
-          />
-
-          <TableSection
-            title="C. Managerial Look-Through PnL"
-            colSpan={columns.length + 2}
-          />
-          <TableRow
-            label="Look-Through Revenue"
-            data={columns}
-            dk="lookThroughRevenue"
-            total={data.totals.lookThroughRevenue}
-            isIndent
-          />
-          <TableRow
-            label="Look-Through EBITDA"
-            data={columns}
-            dk="lookThroughEbitda"
-            total={data.totals.lookThroughEbitda}
-            isIndent
-          />
-          <TableRow
-            label="Look-Through Net Income"
-            data={columns}
-            dk="lookThroughNetIncome"
-            total={data.totals.lookThroughNetIncome}
-            highlight
-          />
-          <TableRow
-            label="Blended Net Margin (%)"
-            data={columns}
-            dk="lookThroughMargin"
-            total={data.totals.lookThroughMargin}
-            highlight
-            indigo
-          />
-        </tbody>
-      </table>
-    </div>
-  </div>
-);
+  );
 });
 
 const OpCoSettingsView = memo(
@@ -11899,6 +12107,75 @@ const MasterTimelineView = memo(({ isPresenting }) => {
     return null;
   }, [groups, selectedTaskId]);
 
+  const taskConflicts = useMemo(() => {
+    const allTasksMap = {};
+    groups.forEach((g) => {
+      g.tasks.forEach((t) => {
+        allTasksMap[t.id] = { ...t, groupName: g.name };
+      });
+    });
+
+    const conflicts = {};
+
+    groups.forEach((g) => {
+      g.tasks.forEach((t) => {
+        const warnings = [];
+        const tStart = parseInt(t.start) || 1;
+        const tDuration = parseInt(t.duration) || 1;
+        const tEnd = tStart + tDuration - 1;
+
+        // 1. Dependency-based sequence checks
+        if (t.dependencies && t.dependencies.length > 0) {
+          t.dependencies.forEach((depId) => {
+            const depTask = allTasksMap[depId];
+            if (depTask) {
+              const depStart = parseInt(depTask.start) || 1;
+              const depDuration = parseInt(depTask.duration) || 1;
+              const depEnd = depStart + depDuration - 1;
+
+              if (tStart <= depEnd) {
+                const depEndMonthName = TIMELINE_MONTHS[depEnd - 1]?.name || `Month ${depEnd}`;
+                const tStartMonthName = TIMELINE_MONTHS[tStart - 1]?.name || `Month ${tStart}`;
+                warnings.push(
+                  `Predecessor overlap: Scheduled to start in ${tStartMonthName} but relies on ${depId.toUpperCase()} "${depTask.name}" which finishes later in ${depEndMonthName}.`
+                );
+              }
+            }
+          });
+        }
+
+        // 2. Additional construction sequence feasibility checks
+        if (t.id === "t7") {
+          const t6 = allTasksMap["t6"];
+          if (t6) {
+            const t6End = (parseInt(t6.start) || 1) + (parseInt(t6.duration) || 1) - 1;
+            if (tStart <= t6End) {
+              warnings.push("Civil sequence constraint: Interior fit-outs (T7) cannot realistically start until the main concrete shielding core structure (T6) is completely poured.");
+            }
+          }
+        }
+
+        if (t.id === "t12") {
+          const t6 = allTasksMap["t6"];
+          if (t6) {
+            const t6End = (parseInt(t6.start) || 1) + (parseInt(t6.duration) || 1) - 1;
+            if (tStart <= t6End) {
+              warnings.push("Drills safety warning: Emergency drills (T12) and high-energy calibrations cannot proceed inside unsafe, incomplete concrete vault shielding core (T6).");
+            }
+          }
+        }
+
+        if (warnings.length > 0) {
+          conflicts[t.id] = warnings;
+        }
+      });
+    });
+
+    return conflicts;
+  }, [groups, TIMELINE_MONTHS]);
+
+  const selectedTaskConflicts = selectedTaskId ? taskConflicts[selectedTaskId] || [] : [];
+
   const toggleGroup = (groupId) =>
     setExpandedGroups((prev) => ({ ...prev, [groupId]: !prev[groupId] }));
   const toggleYear = (year) =>
@@ -12439,6 +12716,13 @@ const MasterTimelineView = memo(({ isPresenting }) => {
                                 >
                                   {task.name}
                                 </p>
+                                {taskConflicts[task.id] && (
+                                  <AlertTriangle
+                                    size={11}
+                                    className="text-amber-500 shrink-0 select-none animate-bounce"
+                                    title={`Schedule Clash: ${taskConflicts[task.id][0]}`}
+                                  />
+                                )}
                               </div>
                               <div className="w-28 px-2 py-3 border-r border-[#D8D8D8] sticky left-44 bg-white z-20 text-center shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)] shrink-0">
                                 <span className="text-[9px] font-mono font-black text-[#4C4A4B] bg-[#EFEBE7] px-1.5 py-0.5 rounded whitespace-nowrap">
@@ -12939,6 +13223,31 @@ const MasterTimelineView = memo(({ isPresenting }) => {
                       equipment fitment, nuclear physics calibration, and final
                       commercial opening.
                     </p>
+                  </div>
+                </div>
+              )}
+              {selectedTaskConflicts && selectedTaskConflicts.length > 0 && (
+                <div className="p-4 bg-[#F9F8F6] border-2 border-amber-500/40 rounded-2xl flex flex-col gap-2.5 animate-in fade-in duration-300">
+                  <div className="flex items-start gap-3">
+                    <AlertTriangle
+                      size={18}
+                      className="text-amber-600 shrink-0 mt-0.5 animate-pulse"
+                    />
+                    <div>
+                      <h4 className="font-extrabold text-xs text-[#1E2F31] uppercase tracking-wider">
+                        Timeline Clash Warning
+                      </h4>
+                      <p className="text-[10px] text-[#4C4A4B] leading-relaxed font-bold mt-1">
+                        We detected sequencing issues that are unrealistic or conflict with predecessors:
+                      </p>
+                    </div>
+                  </div>
+                  <div className="space-y-1.5 pl-7">
+                    {selectedTaskConflicts.map((msg, idx) => (
+                      <p key={idx} className="text-[10px] text-[#1E2F31] font-bold leading-normal relative before:content-['•'] before:absolute before:-left-3 before:text-[#9B8B70]">
+                        {msg}
+                      </p>
+                    ))}
                   </div>
                 </div>
               )}
@@ -13706,7 +14015,7 @@ export default function App() {
       <nav className="bg-white border-b border-[#D8D8D8] sticky top-0 z-[120] shadow-sm transition-all duration-300">
         <div className={`transition-all duration-300 ${containerClass}`}>
           {/* Group Switcher */}
-          <div className="flex items-center gap-4 pt-3 border-b border-[#EFEBE7]">
+          <div className="flex items-center justify-center gap-4 pt-3 border-b border-[#EFEBE7]">
             <button
               onClick={() => handleGroupChange("summary")}
               className={`pb-2 px-2 text-[11px] font-black uppercase tracking-widest transition-all relative ${activeGroup === "summary" ? "text-[#1C6048]" : "text-[#4C4A4B] opacity-50 hover:opacity-100"}`}
