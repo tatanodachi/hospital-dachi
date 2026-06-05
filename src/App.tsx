@@ -30,6 +30,8 @@ import {
   DollarSign,
   Activity,
   FileText,
+  Maximize2,
+  Minimize2,
   Settings,
   LayoutDashboard,
   List,
@@ -106,6 +108,19 @@ import {
   AlertTriangle,
 } from "lucide-react";
 import { ExecutiveSummaryView } from "./ExecutiveSummaryView";
+
+const LazyResponsiveContainer = memo(({ children, ...props }) => {
+  const [isMounted, setIsMounted] = useState(false);
+  useEffect(() => {
+    setIsMounted(true);
+  }, []);
+
+  if (!isMounted) {
+    return <div style={{ width: "100%", height: "100%" }} />;
+  }
+
+  return <ResponsiveContainer {...props}>{children}</ResponsiveContainer>;
+});
 
 const CHART_MARGINS_BAR = { top: 20, right: 0, left: 0, bottom: 0 };
 const CHART_MARGINS_LINE = { top: 40, right: 35, left: 20, bottom: 0 };
@@ -213,6 +228,86 @@ const generateTimelineMonths = (start, end) => {
 
 const INITIAL_GROUPS = [
   {
+    id: "capex",
+    name: "0. CAPEX & Setup",
+    color: "from-indigo-600 to-indigo-800",
+    bgLight: "bg-indigo-50",
+    tasks: [
+      {
+        id: "c1",
+        name: "Land Acquisition",
+        start: 1,
+        duration: 1,
+        progress: 100,
+        dependencies: [],
+        owner: "Finance Board",
+        cost: 0,
+        desc: "Final settlement and site handover for the specialized hospital facility.",
+        critical: true,
+      },
+      {
+        id: "c2",
+        name: "Licensing & Permits",
+        start: 1,
+        duration: 1,
+        progress: 0,
+        dependencies: [],
+        owner: "Legal / Ops",
+        cost: 1.2,
+        desc: "Strategic licenses, setup fees, and initial MoH administrative registrations.",
+        critical: false,
+      },
+      {
+        id: "c3",
+        name: "Consultant (Design/Legal/Financial)",
+        start: 2,
+        duration: 6,
+        progress: 0,
+        dependencies: [],
+        owner: "Project Mgmt",
+        cost: 4.8,
+        desc: "Design consultants, financial audit groups, and clinical strategy advisors.",
+        critical: true,
+      },
+      {
+        id: "c4",
+        name: "Hospital FF&E Setup",
+        start: 16,
+        duration: 9,
+        progress: 0,
+        dependencies: [],
+        owner: "Procurement",
+        cost: 12.0,
+        desc: "Furniture, Fixtures & Equipment fit-out for both clinical and admin zones.",
+        critical: false,
+      },
+      {
+        id: "c5",
+        name: "Cluster Infrastructure",
+        start: 1,
+        duration: 12,
+        progress: 0,
+        dependencies: [],
+        owner: "IT / Facilities",
+        cost: 15.0,
+        desc: "Network backbone, server rooms, and primary medical data clustering setup.",
+        critical: false,
+      },
+      {
+        id: "c6",
+        name: "Sharing Development",
+        start: 1,
+        duration: 12,
+        progress: 0,
+        dependencies: [],
+        owner: "Tech Team",
+        cost: 8.5,
+        desc: "Software systems and R&D cost sharing for multi-tenant integrated apps.",
+        critical: false,
+      },
+    ],
+  },
+  {
     id: "design",
     name: "1. Design & Planning",
     color: "from-[#1C6048] to-[#2E8563]",
@@ -298,7 +393,7 @@ const INITIAL_GROUPS = [
         id: "t6",
         name: "Main Structure & Core",
         start: 10,
-        duration: 9,
+        duration: 8,
         progress: 0,
         owner: "EPC Contractor",
         cost: 87.0,
@@ -310,7 +405,7 @@ const INITIAL_GROUPS = [
         id: "t7",
         name: "Interior Fit-Out & MEP",
         start: 16,
-        duration: 6,
+        duration: 5,
         progress: 0,
         owner: "Fit-Out Lead",
         cost: 38.0,
@@ -353,8 +448,8 @@ const INITIAL_GROUPS = [
       {
         id: "t12",
         name: "Testing & Staff Drills",
-        start: 19,
-        duration: 6,
+        start: 22,
+        duration: 3,
         progress: 0,
         owner: "Clinical Director",
         cost: 4.5,
@@ -550,7 +645,6 @@ const DEFAULT_PROPCO_ASSUMPTIONS = {
   equityDrawYear1Pct: 100,
   devGaMonthly: 0.5,
   devCarPct: 0.15,
-  constructionOpexMonthly: 0.5,
   opOverheadMonthly: 0.2,
   opOverheadInc: 4,
   ffeReservePct: 2,
@@ -1173,9 +1267,40 @@ const runOpCoEngine = (assumptions, config) => {
   };
 };
 
-const runPropCoEngine = (assumptions, opCoModelData, config) => {
+const runPropCoEngine = (assumptions, opCoModelData, config, groups = []) => {
   const requestedYears = config?.projYears || 10;
   const projYears = Math.min(requestedYears, 30);
+
+  // Link Timeline Capex
+  const allTasks = (groups || []).flatMap(g => g.tasks || []);
+  const hasTimeline = allTasks.length > 0;
+
+  const getTaskTimingDistribution = (matchStrs) => {
+    const monthly = new Array(projYears * 12).fill(0);
+    const tasks = allTasks.filter(t => matchStrs.some(str => t.name.toLowerCase().includes(str.toLowerCase())));
+    if (tasks.length === 0) return null;
+
+    let totalActiveMonths = 0;
+    tasks.forEach(task => { totalActiveMonths += Math.max(1, task.duration); });
+
+    tasks.forEach(task => {
+      const s = Math.max(0, task.start - 1);
+      const d = Math.max(1, task.duration);
+      for (let m = s; m < s + d && m < monthly.length; m++) {
+        monthly[m] += 1 / totalActiveMonths;
+      }
+    });
+    return monthly;
+  };
+
+  const constrTiming = getTaskTimingDistribution(["structure", "fit-out", "construction"]);
+  const eqTiming = getTaskTimingDistribution(["asset lease", "equipment", "medical equip"]);
+  const infraTiming = getTaskTimingDistribution(["infrastructure"]);
+  const ffeTiming = getTaskTimingDistribution(["ff&e"]);
+  const sharingTiming = getTaskTimingDistribution(["sharing"]);
+  const consultantTiming = getTaskTimingDistribution(["consultant"]);
+  const licenseTiming = getTaskTimingDistribution(["licens", "permit"]);
+  const landTiming = getTaskTimingDistribution(["land"]);
 
   let exitYear = null;
   if (config?.exitYear !== undefined && config.exitYear !== null) {
@@ -1189,7 +1314,10 @@ const runPropCoEngine = (assumptions, opCoModelData, config) => {
     unleveredCfsMonthly = [],
     operatingCfsMonthly = [],
     devGaMonthly = [],
-    devCarMonthly = [];
+    devCarMonthly = [],
+    hardSpendMonthly = [],
+    softSpendMonthly = [],
+    totalSpendMonthly = [];
 
   const landCost =
     (assumptions.includeLand ?? true)
@@ -1199,8 +1327,7 @@ const runPropCoEngine = (assumptions, opCoModelData, config) => {
   const medEqFullValue = assumptions.includeMedEq
     ? (assumptions.capexMedEqQty * assumptions.capexMedEqPrice) / 1000
     : 0;
-  const medEqCost =
-    assumptions.medEqProcurement !== "lease" ? medEqFullValue : 0;
+  const medEqCost = medEqFullValue;
   const infraCost =
     (assumptions.capexInfraQty * assumptions.capexInfraPrice) / 1000;
   const ffeCost = assumptions.includeFFE
@@ -1210,32 +1337,40 @@ const runPropCoEngine = (assumptions, opCoModelData, config) => {
     (assumptions.capexSharingDevQty * assumptions.capexSharingDevPrice) / 1000;
   const totalHardCosts = buildCost + medEqCost + infraCost + ffeCost + sharingDevCost;
 
+  const upfrontMedEq = assumptions.medEqProcurement !== "lease" ? medEqCost : 0;
+  const leasedMedEq = medEqCost - upfrontMedEq;
+
   const consultantBase = buildCost + ffeCost + infraCost + medEqFullValue;
   const licenseBase = consultantBase;
 
-  const consultantCost =
-    consultantBase * ((assumptions.capexConsultantPct || 0) / 100);
-  const licenseCost =
-    licenseBase * ((assumptions.capexLicensePct || 0) / 100);
-  const vatBase =
-    consultantCost +
-    buildCost +
-    ffeCost +
-    infraCost +
-    sharingDevCost;
-  const vatCost = vatBase * ((assumptions.capexVat || 0) / 100);
-  const carCost = buildCost * ((assumptions.devCarPct || 0) / 100);
-  const contingencyBase =
-    licenseCost +
-    consultantCost +
-    buildCost +
-    ffeCost +
-    infraCost +
-    sharingDevCost +
-    vatCost;
-  const contingencyCost =
-    contingencyBase * ((assumptions.capexContingencyPct || 0) / 100);
+  const upfrontConsultantCost = consultantBase * ((assumptions.capexConsultantPct || 0) / 100);
+  const upfrontLicenseCost = licenseBase * ((assumptions.capexLicensePct || 0) / 100);
+  const deferredConsultantCost = 0;
+  const deferredLicenseCost = 0;
+  
+  const consultantCost = upfrontConsultantCost + deferredConsultantCost;
+  const licenseCost = upfrontLicenseCost + deferredLicenseCost;
 
+  const upfrontVatBase = upfrontConsultantCost + buildCost + ffeCost + infraCost + upfrontMedEq + sharingDevCost;
+  const upfrontVatCost = upfrontVatBase * ((assumptions.capexVat || 0) / 100);
+  const deferredVatBase = deferredConsultantCost + leasedMedEq;
+  const deferredVatCost = deferredVatBase * ((assumptions.capexVat || 0) / 100);
+  
+  const vatCost = upfrontVatCost + deferredVatCost;
+
+  const carCost = buildCost * ((assumptions.devCarPct || 0) / 100);
+  const totalDevMonths = assumptions.devDurationMonths || 24;
+  const devGaTotalCost = (assumptions.devGaMonthly || 0) * totalDevMonths;
+
+  const upfrontContingencyBase = upfrontLicenseCost + upfrontConsultantCost + buildCost + ffeCost + infraCost + sharingDevCost + upfrontVatCost + upfrontMedEq;
+  const upfrontContingencyCost = upfrontContingencyBase * ((assumptions.capexContingencyPct || 0) / 100);
+  const deferredContingencyBase = deferredLicenseCost + deferredConsultantCost + leasedMedEq + deferredVatCost;
+  const deferredContingencyCost = deferredContingencyBase * ((assumptions.capexContingencyPct || 0) / 100);
+
+  const contingencyCost = upfrontContingencyCost + deferredContingencyCost;
+
+  const deferredSoftCosts = deferredConsultantCost + deferredLicenseCost + deferredVatCost + deferredContingencyCost;
+  
   const totalCapex =
     landCost +
     buildCost +
@@ -1246,11 +1381,18 @@ const runPropCoEngine = (assumptions, opCoModelData, config) => {
     licenseCost +
     sharingDevCost +
     vatCost +
+    carCost +
+    devGaTotalCost +
     contingencyCost;
+
+  const upfrontTotalCapex = totalCapex - leasedMedEq - deferredSoftCosts;
+
   const totalSoftCosts = totalCapex - landCost - totalHardCosts;
+  const upfrontSoftCosts = totalSoftCosts - deferredSoftCosts;
   const effectiveLtv = assumptions.includeFinancing ? assumptions.ltv : 0;
-  const totalDebt = totalCapex * (effectiveLtv / 100);
-  const totalEquity = totalCapex - totalDebt;
+  
+  const totalDebt = upfrontTotalCapex * (effectiveLtv / 100);
+  const totalEquity = upfrontTotalCapex - totalDebt;
 
   const ioYears = assumptions.ioGracePeriodYears || 0;
   const ioGraceMonths = ioYears * 12;
@@ -1261,31 +1403,68 @@ const runPropCoEngine = (assumptions, opCoModelData, config) => {
   const postIoPmtMonthly = Math.abs(
     calculatePMT(rateMonthly, amortizingTenorMonths, totalDebt),
   );
-  const totalCapexExLand = totalCapex - landCost;
+  
+  const totalCapexExLand = upfrontTotalCapex - landCost;
   const totalDebtExLand = totalCapexExLand * (effectiveLtv / 100);
   const totalEquityExLand = totalCapexExLand - totalDebtExLand;
   const postIoPmtExLandMonthly = Math.abs(
     calculatePMT(rateMonthly, amortizingTenorMonths, totalDebtExLand),
   );
 
+  const vatRate = (assumptions.capexVat || 0) / 100;
+  const contingencyRate = (assumptions.capexContingencyPct || 0) / 100;
+
+  // Proportional VAT allocation (Licenses excluded)
+  const buildVat = buildCost * vatRate;
+  const medEqVatUpfront = upfrontMedEq * vatRate;
+  const infraVat = infraCost * vatRate;
+  const ffeVat = ffeCost * vatRate;
+  const sharingVat = sharingDevCost * vatRate;
+  const consultantVat = upfrontConsultantCost * vatRate;
+
+  // Proportional Contingency allocation
+  const buildContingency = (buildCost + buildVat) * contingencyRate;
+  const medEqContingencyUpfront = (upfrontMedEq + medEqVatUpfront) * contingencyRate;
+  const infraContingency = (infraCost + infraVat) * contingencyRate;
+  const ffeContingency = (ffeCost + ffeVat) * contingencyRate;
+  const sharingContingency = (sharingDevCost + sharingVat) * contingencyRate;
+  const consultantContingency = (upfrontConsultantCost + consultantVat) * contingencyRate;
+  const licenseContingency = upfrontLicenseCost * contingencyRate;
+
   const buildBasis = buildCost;
-  let medEqBasis = medEqCost;
-  const infraBasis = infraCost + sharingDevCost;
+  let medEqBasis = upfrontMedEq;
+  const infraBasis = infraCost;
   const ffeBasis = ffeCost;
-  let softCostBasis = totalSoftCosts;
+  const sharingBasis = sharingDevCost;
+  
+  let consultantBasis = upfrontConsultantCost;
+  let licenseBasis = upfrontLicenseCost;
+  let vatBasis = upfrontVatCost;
+  let contingencyBasis = upfrontContingencyCost;
 
   const devYears = Math.max(
     1,
     Math.ceil((assumptions.devDurationMonths || 12) / 12),
   );
-  const totalDevMonths = assumptions.devDurationMonths || 24;
 
-  let outstandingDebt = totalDebt,
-    outstandingDebtExLand = totalDebtExLand,
+  let outstandingDebt = 0,
+    outstandingDebtExLand = 0,
     equityCum = 0,
     equityCumExLand = 0;
 
-  const genericCapex = totalCapex - consultantCost - licenseCost;
+  let debtDrawsMonthly = [];
+  let landSpendMonthly = [];
+  let buildSpendMonthlyArr = [];
+  let eqSpendMonthlyArr = [];
+  let infraSpendMonthlyArr = [];
+  let ffeSpendMonthlyArr = [];
+  let sharingSpendMonthlyArr = [];
+  let consultantSpendMonthlyArr = [];
+  let licenseSpendMonthlyArr = [];
+  let vatSpendMonthlyArr = [];
+  let contingencySpendMonthlyArr = [];
+
+  const genericCapex = totalCapex - consultantCost - licenseCost - leasedMedEq;
   const genericEquity = genericCapex * (1 - effectiveLtv / 100);
   const genericEquityExLand = (genericCapex - landCost) * (1 - effectiveLtv / 100);
 
@@ -1294,56 +1473,142 @@ const runPropCoEngine = (assumptions, opCoModelData, config) => {
     const devYearOfThisMonth = Math.ceil(md / 12);
     const m_ga = assumptions.devGaMonthly || 0;
     
-    let eqDrawBase_month, eqDrawExLandBase_month, capDrawBase_month;
+    let m_hard = 0, m_soft = 0, capDrawBase_month = 0, eqDrawBase_month = 0, eqDrawExLandBase_month = 0;
+    let fallback_m_car = 0;
     
-    let genericCapDraw_month, genericEqDraw_month, genericEqDrawExLand_month;
-    if (devYears > 1) {
-      const y1Pct = (assumptions.equityDrawYear1Pct ?? 50) / 100;
-      if (devYearOfThisMonth === 1) {
-        genericCapDraw_month = (genericCapex * y1Pct) / 12;
-        genericEqDraw_month = (genericEquity * y1Pct) / 12;
-        genericEqDrawExLand_month = (genericEquityExLand * y1Pct) / 12;
-      } else {
-        const remainingMonths = totalDevMonths - 12;
-        genericCapDraw_month = (genericCapex * (1 - y1Pct)) / remainingMonths;
-        genericEqDraw_month = (genericEquity * (1 - y1Pct)) / remainingMonths;
-        genericEqDrawExLand_month = (genericEquityExLand * (1 - y1Pct)) / remainingMonths;
-      }
+    let m_build = 0, m_eq = 0, m_infra = 0, m_ffe = 0, m_sharing = 0;
+    let m_consultant = 0, m_license = 0, m_vat = 0, m_contingency = 0;
+    
+    if (hasTimeline) {
+      // Hard Costs Month
+      const t_land = landTiming ? landCost * (landTiming[md - 1] || 0) : (md === 1 ? landCost : 0);
+      const t_build = constrTiming ? buildCost * (constrTiming[md - 1] || 0) : buildCost / totalDevMonths;
+      const t_eq = eqTiming ? upfrontMedEq * (eqTiming[md - 1] || 0) : upfrontMedEq / totalDevMonths;
+      const t_infra = infraTiming ? infraCost * (infraTiming[md - 1] || 0) : infraCost / totalDevMonths;
+      const t_ffe = ffeTiming ? ffeCost * (ffeTiming[md - 1] || 0) : ffeCost / totalDevMonths;
+      const t_sharing = sharingTiming ? sharingDevCost * (sharingTiming[md - 1] || 0) : sharingDevCost / totalDevMonths;
+
+      // Soft Costs Month
+      const t_consultant = consultantTiming ? upfrontConsultantCost * (consultantTiming[md - 1] || 0) : (md >= 2 && md <= 7 ? upfrontConsultantCost / 6 : 0);
+      const t_license = licenseTiming ? upfrontLicenseCost * (licenseTiming[md - 1] || 0) : (md === 1 ? upfrontLicenseCost : 0);
+
+      // Pro-rata VAT, Contingency, CAR based on core spend this month
+      const core_spend = t_build + t_eq + t_infra + t_ffe + t_sharing + t_consultant + t_license;
+      const total_core_cost = buildCost + upfrontMedEq + infraCost + ffeCost + sharingDevCost + upfrontConsultantCost + upfrontLicenseCost;
+      const pct_of_core = total_core_cost > 0 ? core_spend / total_core_cost : 1 / totalDevMonths;
+      
+      const t_vat = upfrontVatCost * pct_of_core;
+      const t_contingency = upfrontContingencyCost * pct_of_core;
+      const t_car = constrTiming ? carCost * (constrTiming[md - 1] || 0) : carCost / totalDevMonths;
+      
+      fallback_m_car = t_car;
+
+      m_build = t_build; m_eq = t_eq; m_infra = t_infra; m_ffe = t_ffe; m_sharing = t_sharing;
+      m_consultant = t_consultant; m_license = t_license; m_vat = t_vat; m_contingency = t_contingency;
+
+      m_hard = t_build + t_eq + t_infra + t_ffe + t_sharing;
+      m_soft = t_consultant + t_license + t_vat + t_contingency + t_car + m_ga;
+      
+      capDrawBase_month = (landTiming ? landCost * (landTiming[md - 1] || 0) : (md === 1 ? landCost : 0)) + m_hard + m_soft; // INCLUDING LAND
+      eqDrawBase_month = capDrawBase_month * (1 - effectiveLtv / 100);
+      eqDrawExLandBase_month = (m_hard + m_soft) * (1 - effectiveLtv / 100);
     } else {
-      genericCapDraw_month = genericCapex / totalDevMonths;
-      genericEqDraw_month = genericEquity / totalDevMonths;
-      genericEqDrawExLand_month = genericEquityExLand / totalDevMonths;
+      let genericCapDraw_month, genericEqDraw_month, genericEqDrawExLand_month;
+      if (devYears > 1) {
+        const y1Pct = (assumptions.equityDrawYear1Pct ?? 50) / 100;
+        if (devYearOfThisMonth === 1) {
+          genericCapDraw_month = (genericCapex * y1Pct) / 12;
+          genericEqDraw_month = (genericEquity * y1Pct) / 12;
+          genericEqDrawExLand_month = (genericEquityExLand * y1Pct) / 12;
+        } else {
+          const remainingMonths = totalDevMonths - 12;
+          genericCapDraw_month = (genericCapex * (1 - y1Pct)) / remainingMonths;
+          genericEqDraw_month = (genericEquity * (1 - y1Pct)) / remainingMonths;
+          genericEqDrawExLand_month = (genericEquityExLand * (1 - y1Pct)) / remainingMonths;
+        }
+      } else {
+        genericCapDraw_month = genericCapex / totalDevMonths;
+        genericEqDraw_month = genericEquity / totalDevMonths;
+        genericEqDrawExLand_month = genericEquityExLand / totalDevMonths;
+      }
+
+      let m_consultantCost = 0;
+      if (md >= 2 && md <= 7) m_consultantCost = upfrontConsultantCost / 6;
+
+      let m_licenseCost = 0;
+      if (md === 1) m_licenseCost = upfrontLicenseCost;
+
+      capDrawBase_month = genericCapDraw_month + m_consultantCost + m_licenseCost;
+      eqDrawBase_month = genericEqDraw_month + (m_consultantCost + m_licenseCost) * (1 - effectiveLtv / 100);
+      eqDrawExLandBase_month = genericEqDrawExLand_month + (m_consultantCost + m_licenseCost) * (1 - effectiveLtv / 100);
+
+      m_hard = upfrontTotalCapex > 0 ? (capDrawBase_month * (totalHardCosts - leasedMedEq)) / upfrontTotalCapex : 0;
+      m_soft = upfrontTotalCapex > 0 ? (capDrawBase_month * upfrontSoftCosts) / upfrontTotalCapex : 0;
+      
+      m_build = upfrontTotalCapex > 0 ? (capDrawBase_month * buildCost) / upfrontTotalCapex : 0;
+      m_eq = upfrontTotalCapex > 0 ? (capDrawBase_month * upfrontMedEq) / upfrontTotalCapex : 0;
+      m_infra = upfrontTotalCapex > 0 ? (capDrawBase_month * infraCost) / upfrontTotalCapex : 0;
+      m_ffe = upfrontTotalCapex > 0 ? (capDrawBase_month * ffeCost) / upfrontTotalCapex : 0;
+      m_sharing = upfrontTotalCapex > 0 ? (capDrawBase_month * sharingDevCost) / upfrontTotalCapex : 0;
+      
+      m_consultant = upfrontTotalCapex > 0 ? (capDrawBase_month * upfrontConsultantCost) / upfrontTotalCapex : 0;
+      m_license = upfrontTotalCapex > 0 ? (capDrawBase_month * upfrontLicenseCost) / upfrontTotalCapex : 0;
+      m_vat = upfrontTotalCapex > 0 ? (capDrawBase_month * upfrontVatCost) / upfrontTotalCapex : 0;
+      m_contingency = upfrontTotalCapex > 0 ? (capDrawBase_month * upfrontContingencyCost) / upfrontTotalCapex : 0;
+
+      const buildSpendMonthly = upfrontTotalCapex > 0 ? (capDrawBase_month * buildCost) / upfrontTotalCapex : 0;
+      fallback_m_car = buildSpendMonthly * ((assumptions.devCarPct || 0) / 100);
     }
-
-    let m_consultantCost = 0;
-    if (md >= 2 && md <= 7) m_consultantCost = consultantCost / 6;
-
-    let m_licenseCost = 0;
-    if (md === 1) m_licenseCost = licenseCost;
-
-    capDrawBase_month = genericCapDraw_month + m_consultantCost + m_licenseCost;
-    eqDrawBase_month = genericEqDraw_month + (m_consultantCost + m_licenseCost) * (1 - effectiveLtv / 100);
-    eqDrawExLandBase_month = genericEqDrawExLand_month + (m_consultantCost + m_licenseCost) * (1 - effectiveLtv / 100);
-
-    const buildSpendMonthly = totalCapex > 0 ? (capDrawBase_month * buildCost) / totalCapex : 0;
-    const m_car = buildSpendMonthly * ((assumptions.devCarPct || 0) / 100);
     
-    const constructionOpex_month =
-      (assumptions.constructionOpexMonthly || 0) + m_ga + m_car;
+    let m_land_final = 0;
+    if (hasTimeline) {
+      m_land_final = landTiming ? landCost * (landTiming[md - 1] || 0) : (md === 1 ? landCost : 0);
+    } else {
+      m_land_final = upfrontTotalCapex > 0 ? (capDrawBase_month * landCost) / upfrontTotalCapex : 0;
+    }
+    
+    // Track debt drawn based on capEx base month
+    const m_debtDraw = capDrawBase_month * (effectiveLtv / 100);
+    const m_debtDrawExLand = (capDrawBase_month - m_land_final) * (effectiveLtv / 100);
+    
+    outstandingDebt += m_debtDraw;
+    outstandingDebtExLand += m_debtDrawExLand;
 
-    const m_eqDraw = -eqDrawBase_month - constructionOpex_month;
-    const m_eqDrawExLand = -eqDrawExLandBase_month - constructionOpex_month;
-    const m_unleveredCf = -capDrawBase_month - constructionOpex_month;
+    const m_eqDraw = -eqDrawBase_month;
+    const m_eqDrawExLand = -eqDrawExLandBase_month;
+    const m_unleveredCf = -capDrawBase_month;
+
+    const projectSpend_month = m_land_final + m_hard + m_soft;
+
+    landSpendMonthly.push(m_land_final);
+    hardSpendMonthly.push(m_hard);
+    softSpendMonthly.push(m_soft);
+    totalSpendMonthly.push(projectSpend_month);
+    debtDrawsMonthly.push(m_debtDraw);
+
+    buildSpendMonthlyArr.push(m_build);
+    eqSpendMonthlyArr.push(m_eq);
+    infraSpendMonthlyArr.push(m_infra);
+    ffeSpendMonthlyArr.push(m_ffe);
+    sharingSpendMonthlyArr.push(m_sharing);
+    
+    consultantSpendMonthlyArr.push(m_consultant);
+    licenseSpendMonthlyArr.push(m_license);
+    vatSpendMonthlyArr.push(m_vat);
+    contingencySpendMonthlyArr.push(m_contingency);
 
     equityCfsMonthly.push(m_eqDraw);
     equityCfsExLandMonthly.push(m_eqDrawExLand);
     unleveredCfsMonthly.push(m_unleveredCf);
     operatingCfsMonthly.push(m_eqDraw);
     devGaMonthly.push(m_ga);
-    devCarMonthly.push(m_car);
+    devCarMonthly.push(fallback_m_car);
     equityCum += m_eqDraw;
     equityCumExLand += m_eqDrawExLand;
   }
+
+  const peakEquityRequired = Math.abs(equityCum);
+  const peakTotalInvestment = totalSpendMonthly.reduce((a, b) => a + b, 0);
 
   // Push annual development summaries
   for (let i = 1; i <= devYears; i++) {
@@ -1353,35 +1618,37 @@ const runPropCoEngine = (assumptions, opCoModelData, config) => {
     );
     const ga_year = devGaMonthly.slice((i - 1) * 12, i * 12).reduce((a, b) => a + b, 0);
     const car_year = devCarMonthly.slice((i - 1) * 12, i * 12).reduce((a, b) => a + b, 0);
-    const constructionOpex_year =
-      (assumptions.constructionOpexMonthly || 0) * monthsThisYear + ga_year + car_year;
 
-    let eqDrawBase_year, eqDrawExLandBase_year, capDrawBase_year;
-    if (devYears > 1) {
-      const y1Pct = (assumptions.equityDrawYear1Pct ?? 50) / 100;
-      if (i === 1) {
-        eqDrawBase_year = totalEquity * y1Pct;
-        eqDrawExLandBase_year = totalEquityExLand * y1Pct;
-        capDrawBase_year = totalCapex * y1Pct;
-      } else {
-        eqDrawBase_year = (totalEquity * (1 - y1Pct)) / (devYears - 1);
-        eqDrawExLandBase_year = (totalEquityExLand * (1 - y1Pct)) / (devYears - 1);
-        capDrawBase_year = (totalCapex * (1 - y1Pct)) / (devYears - 1);
-      }
-    } else {
-      eqDrawBase_year = totalEquity;
-      eqDrawExLandBase_year = totalEquityExLand;
-      capDrawBase_year = totalCapex;
-    }
+    const eqDraw_year = equityCfsMonthly.slice((i - 1) * 12, i * 12).reduce((a, b) => a + b, 0);
+    const eqDrawExLand_year = equityCfsExLandMonthly.slice((i - 1) * 12, i * 12).reduce((a, b) => a + b, 0);
+    const unleveredCf_year = unleveredCfsMonthly.slice((i - 1) * 12, i * 12).reduce((a, b) => a + b, 0);
 
-    const eqDraw_year = -eqDrawBase_year - constructionOpex_year;
-    const eqDrawExLand_year = -eqDrawExLandBase_year - constructionOpex_year;
+    const land_year = landSpendMonthly.slice((i - 1) * 12, i * 12).reduce((a, b) => a + b, 0);
+    const hard_year = hardSpendMonthly.slice((i - 1) * 12, i * 12).reduce((a, b) => a + b, 0);
+    const soft_year = softSpendMonthly.slice((i - 1) * 12, i * 12).reduce((a, b) => a + b, 0);
+    const totalSpend_year = totalSpendMonthly.slice((i - 1) * 12, i * 12).reduce((a, b) => a + b, 0);
+    const debtDraw_year = debtDrawsMonthly.slice((i - 1) * 12, i * 12).reduce((a, b) => a + b, 0);
+
+    // Detailed aggregations
+    const build_year = buildSpendMonthlyArr.slice((i - 1) * 12, i * 12).reduce((a, b) => a + b, 0);
+    const eq_year = eqSpendMonthlyArr.slice((i - 1) * 12, i * 12).reduce((a, b) => a + b, 0);
+    const infra_year = infraSpendMonthlyArr.slice((i - 1) * 12, i * 12).reduce((a, b) => a + b, 0);
+    const ffe_year = ffeSpendMonthlyArr.slice((i - 1) * 12, i * 12).reduce((a, b) => a + b, 0);
+    const sharing_year = sharingSpendMonthlyArr.slice((i - 1) * 12, i * 12).reduce((a, b) => a + b, 0);
+
+    const consultant_year = consultantSpendMonthlyArr.slice((i - 1) * 12, i * 12).reduce((a, b) => a + b, 0);
+    const license_year = licenseSpendMonthlyArr.slice((i - 1) * 12, i * 12).reduce((a, b) => a + b, 0);
+    const vat_year = vatSpendMonthlyArr.slice((i - 1) * 12, i * 12).reduce((a, b) => a + b, 0);
+    const contingency_year = contingencySpendMonthlyArr.slice((i - 1) * 12, i * 12).reduce((a, b) => a + b, 0);
 
     let monthly = {
-      debtBalance: [], debtBalanceExLand: [], fcfe: [], fcfeExLand: [],
+      debtBalance: [], debtBalanceExLand: [], fcfe: [], fcfeExLand: [], debtDraw: [], landSpend: [],
+      buildSpend: [], eqSpend: [], infraSpend: [], ffeSpend: [], sharingSpend: [],
+      consultantSpend: [], licenseSpend: [], vatSpend: [], contingencySpend: [],
       cumFcfe: [], cumFcfeExLand: [], devGa: [], devCar: [], ebitda: [],
       ebt: [], netIncome: [], corpTax: [], ebtExLand: [], corpTaxExLand: [],
-      interest: [], interestExLand: [], dep: []
+      interest: [], interestExLand: [], dep: [],
+      hardSpend: [], softSpend: [], totalSpend: [], unleveredCf: []
     };
     for (let m = 0; m < 12; m++) {
       const mIdx = (i - 1) * 12 + m;
@@ -1389,14 +1656,47 @@ const runPropCoEngine = (assumptions, opCoModelData, config) => {
       const m_fcfeExLand = equityCfsExLandMonthly[mIdx] || 0;
       const m_ga = devGaMonthly[mIdx] || 0;
       const m_car = devCarMonthly[mIdx] || 0;
+      const m_land = landSpendMonthly[mIdx] || 0;
+      const m_hard = hardSpendMonthly[mIdx] || 0;
+      const m_soft = softSpendMonthly[mIdx] || 0;
+      const m_total = totalSpendMonthly[mIdx] || 0;
+      const m_debtDraw = debtDrawsMonthly[mIdx] || 0;
+      
+      const m_build = buildSpendMonthlyArr[mIdx] || 0;
+      const m_eq = eqSpendMonthlyArr[mIdx] || 0;
+      const m_infra = infraSpendMonthlyArr[mIdx] || 0;
+      const m_ffe = ffeSpendMonthlyArr[mIdx] || 0;
+      const m_sharing = sharingSpendMonthlyArr[mIdx] || 0;
+      
+      const m_consultant = consultantSpendMonthlyArr[mIdx] || 0;
+      const m_license = licenseSpendMonthlyArr[mIdx] || 0;
+      const m_vat = vatSpendMonthlyArr[mIdx] || 0;
+      const m_contingency = contingencySpendMonthlyArr[mIdx] || 0;
+
+      const m_unleveredCf = unleveredCfsMonthly[mIdx] || 0;
       const m_ebitda = -(m_ga + m_car);
       
-      monthly.debtBalance.push(totalDebt);
-      monthly.debtBalanceExLand.push(totalDebtExLand);
+      monthly.debtBalance.push(outstandingDebt);
+      monthly.debtBalanceExLand.push(outstandingDebtExLand);
       monthly.fcfe.push(m_fcfe);
       monthly.fcfeExLand.push(m_fcfeExLand);
       monthly.devGa.push(m_ga);
       monthly.devCar.push(m_car);
+      monthly.landSpend.push(m_land);
+      monthly.buildSpend.push(m_build);
+      monthly.eqSpend.push(m_eq);
+      monthly.infraSpend.push(m_infra);
+      monthly.ffeSpend.push(m_ffe);
+      monthly.sharingSpend.push(m_sharing);
+      monthly.consultantSpend.push(m_consultant);
+      monthly.licenseSpend.push(m_license);
+      monthly.vatSpend.push(m_vat);
+      monthly.contingencySpend.push(m_contingency);
+      monthly.hardSpend.push(m_hard);
+      monthly.softSpend.push(m_soft);
+      monthly.totalSpend.push(m_total);
+      monthly.debtDraw.push(m_debtDraw);
+      monthly.unleveredCf.push(m_unleveredCf);
       monthly.ebitda.push(m_ebitda);
       monthly.ebt.push(m_ebitda);
       monthly.ebtExLand.push(m_ebitda);
@@ -1427,6 +1727,21 @@ const runPropCoEngine = (assumptions, opCoModelData, config) => {
       debtBalanceExLand: totalDebtExLand,
       devGa: ga_year,
       devCar: car_year,
+      landSpend: land_year,
+      buildSpend: build_year,
+      eqSpend: eq_year,
+      infraSpend: infra_year,
+      ffeSpend: ffe_year,
+      sharingSpend: sharing_year,
+      consultantSpend: consultant_year,
+      licenseSpend: license_year,
+      vatSpend: vat_year,
+      contingencySpend: contingency_year,
+      hardSpend: hard_year,
+      softSpend: soft_year,
+      totalSpend: totalSpend_year,
+      debtDraw: debtDraw_year,
+      unleveredCf: unleveredCf_year,
       fcfe: eqDraw_year,
       cumFcfe: equityCfsMonthly.slice(0, i * 12).reduce((a, b) => a + b, 0),
       fcfeExLand: eqDrawExLand_year,
@@ -1440,11 +1755,63 @@ const runPropCoEngine = (assumptions, opCoModelData, config) => {
   const opCoRents = opCoModelData?.annualData
     ?.filter((d) => d.isOperating)
     ?.map((d) => d.rent) || [];
-  let bvB = buildBasis,
-    bvM = medEqBasis,
-    bvI = infraBasis,
-    bvF = ffeBasis,
-    bvS = softCostBasis;
+  // Track book values of each component (base, vat, contingency) separately
+  let bvB_base = buildCost,
+    bvB_vat = buildVat,
+    bvB_contingency = buildContingency;
+
+  let bvM_base = upfrontMedEq,
+    bvM_vat = medEqVatUpfront,
+    bvM_contingency = medEqContingencyUpfront;
+
+  let bvI_base = infraCost,
+    bvI_vat = infraVat,
+    bvI_contingency = infraContingency;
+
+  let bvF_base = ffeCost,
+    bvF_vat = ffeVat,
+    bvF_contingency = ffeContingency;
+
+  let bvSharing_base = sharingDevCost,
+    bvSharing_vat = sharingVat,
+    bvSharing_contingency = sharingContingency;
+
+  let bvConsultant_base = upfrontConsultantCost,
+    bvConsultant_vat = consultantVat,
+    bvConsultant_contingency = consultantContingency;
+
+  let bvLicense_base = upfrontLicenseCost,
+    bvLicense_vat = 0,
+    bvLicense_contingency = licenseContingency;
+
+  // Active calculation bases for depreciations (allows deferred cost additions)
+  let buildBasis_base = buildCost;
+  let buildBasis_vat = buildVat;
+  let buildBasis_contingency = buildContingency;
+
+  let medEqBasis_base = upfrontMedEq;
+  let medEqBasis_vat = medEqVatUpfront;
+  let medEqBasis_contingency = medEqContingencyUpfront;
+
+  let infraBasis_base = infraCost;
+  let infraBasis_vat = infraVat;
+  let infraBasis_contingency = infraContingency;
+
+  let ffeBasis_base = ffeCost;
+  let ffeBasis_vat = ffeVat;
+  let ffeBasis_contingency = ffeContingency;
+
+  let sharingBasis_base = sharingDevCost;
+  let sharingBasis_vat = sharingVat;
+  let sharingBasis_contingency = sharingContingency;
+
+  let consultantBasis_base = upfrontConsultantCost;
+  let consultantBasis_vat = consultantVat;
+  let consultantBasis_contingency = consultantContingency;
+
+  let licenseBasis_base = upfrontLicenseCost;
+  let licenseBasis_vat = 0;
+  let licenseBasis_contingency = licenseContingency;
 
   // Run operating phase month-by-month and group annually
   for (let i = 1; i <= projYears; i++) {
@@ -1464,7 +1831,10 @@ const runPropCoEngine = (assumptions, opCoModelData, config) => {
       interest: [], principal: [], interestExLand: [], principalExLand: [], dep: [], ebt: [],
       corpTax: [], netIncome: [], deferredCapex: [], fcfe: [], cumFcfe: [], fcfeExLand: [], cumFcfeExLand: [], unleveredCf: [],
       opFcfe: [], exit: [], exitExLand: [], debtBalance: [], debtBalanceExLand: [],
-      avgDscr: [], avgYield: [], yocExLand: []
+      avgDscr: [], avgYield: [], yocExLand: [],
+      landSpend: [], buildSpend: [], eqSpend: [], infraSpend: [], ffeSpend: [], sharingSpend: [],
+      consultantSpend: [], licenseSpend: [], vatSpend: [], contingencySpend: [],
+      hardSpend: [], softSpend: [], totalSpend: [], debtDraw: []
     };
 
     let year_revenue = 0,
@@ -1479,6 +1849,16 @@ const runPropCoEngine = (assumptions, opCoModelData, config) => {
       year_interestExLand = 0,
       year_principalExLand = 0,
       year_dep = 0,
+      year_depBuild = 0,
+      year_depMedEq = 0,
+      year_depInfra = 0,
+      year_depFfe = 0,
+      year_depSharing = 0,
+      year_depConsultant = 0,
+      year_depLicense = 0,
+      year_depVat = 0,
+      year_depContingency = 0,
+      year_depSoft = 0,
       year_ebt = 0,
       year_tax = 0,
       year_netIncome = 0,
@@ -1505,13 +1885,42 @@ const runPropCoEngine = (assumptions, opCoModelData, config) => {
 
       // Leased equipment monthly calculations
       if (assumptions.includeMedEq && assumptions.medEqProcurement === "lease") {
-        if (i < (assumptions.medEqPurchaseOpYear || 4)) {
+        const purchaseYear = assumptions.medEqPurchaseOpYear || 4;
+        if (i < purchaseYear) {
           m_medEqLeaseOpex = assumptions.medEqLeaseMonthly || 0.375;
-        } else if (i === (assumptions.medEqPurchaseOpYear || 4)) {
-          if (m === 1) {
-            m_deferredCapex = (assumptions.medEqPurchaseAmount || 150000) / 1000;
-            bvM += m_deferredCapex;
-            medEqBasis += m_deferredCapex;
+        } else if (i === purchaseYear) {
+          if (m <= 3) {
+            const m_deferredHard = leasedMedEq / 3;
+            const m_defConsultant = deferredConsultantCost / 3;
+            const m_defLicense = deferredLicenseCost / 3;
+            
+            const m_defMedEqVat = (leasedMedEq * (assumptions.capexVat || 0) / 100) / 3;
+            const m_defConsultantVat = (deferredConsultantCost * (assumptions.capexVat || 0) / 100) / 3;
+            
+            const m_defMedEqContingency = ((leasedMedEq + (leasedMedEq * (assumptions.capexVat || 0) / 100)) * (assumptions.capexContingencyPct || 0) / 100) / 3;
+            const m_defConsultantContingency = ((deferredConsultantCost + (deferredConsultantCost * (assumptions.capexVat || 0) / 100)) * (assumptions.capexContingencyPct || 0) / 100) / 3;
+            const m_defLicenseContingency = (deferredLicenseCost * (assumptions.capexContingencyPct || 0) / 100) / 3;
+            
+            m_deferredCapex = m_deferredHard + m_defConsultant + m_defLicense + m_defMedEqVat + m_defConsultantVat + m_defMedEqContingency + m_defConsultantContingency + m_defLicenseContingency;
+            
+            bvM_base += m_deferredHard;
+            medEqBasis_base += m_deferredHard;
+            bvM_vat += m_defMedEqVat;
+            medEqBasis_vat += m_defMedEqVat;
+            bvM_contingency += m_defMedEqContingency;
+            medEqBasis_contingency += m_defMedEqContingency;
+            
+            bvConsultant_base += m_defConsultant;
+            consultantBasis_base += m_defConsultant;
+            bvConsultant_vat += m_defConsultantVat;
+            consultantBasis_vat += m_defConsultantVat;
+            bvConsultant_contingency += m_defConsultantContingency;
+            consultantBasis_contingency += m_defConsultantContingency;
+            
+            bvLicense_base += m_defLicense;
+            licenseBasis_base += m_defLicense;
+            bvLicense_contingency += m_defLicenseContingency;
+            licenseBasis_contingency += m_defLicenseContingency;
           }
         }
       }
@@ -1544,52 +1953,80 @@ const runPropCoEngine = (assumptions, opCoModelData, config) => {
         if (method === "DDB") return Math.min(bv * (2 / life), bv);
         return Math.min(basis / life, bv);
       };
-      const m_d1 = calcDep(
-        bvB,
-        buildBasis,
-        assumptions.depLifeBuilding || 20,
-        assumptions.depMethodBuilding,
-      ) / 12;
-      bvB -= m_d1;
 
-      const m_d2 =
-        assumptions.includeMedEq &&
-        assumptions.medEqProcurement === "lease" &&
-        i < (assumptions.medEqPurchaseOpYear || 4)
-          ? 0
-          : calcDep(
-              bvM,
-              medEqBasis,
-              assumptions.depLifeMedEq || 10,
-              assumptions.depMethodMedEq,
-            ) / 12;
-      bvM -= m_d2;
+      // 1. Construction (Building)
+      const m_dB_base = calcDep(bvB_base, buildBasis_base, assumptions.depLifeBuilding || 20, assumptions.depMethodBuilding) / 12;
+      bvB_base -= m_dB_base;
+      const m_dB_vat = calcDep(bvB_vat, buildBasis_vat, assumptions.depLifeBuilding || 20, assumptions.depMethodBuilding) / 12;
+      bvB_vat -= m_dB_vat;
+      const m_dB_contingency = calcDep(bvB_contingency, buildBasis_contingency, assumptions.depLifeBuilding || 20, assumptions.depMethodBuilding) / 12;
+      bvB_contingency -= m_dB_contingency;
+      const m_d1 = m_dB_base;
 
-      const m_d3 = calcDep(
-        bvI,
-        infraBasis,
-        assumptions.depLifeInfra || 20,
-        assumptions.depMethodInfra,
-      ) / 12;
-      bvI -= m_d3;
+      // 2. Medical Equipment
+      let m_dM_base = 0;
+      let m_dM_vat = 0;
+      let m_dM_contingency = 0;
+      if (!(assumptions.includeMedEq && assumptions.medEqProcurement === "lease" && i < (assumptions.medEqPurchaseOpYear || 4))) {
+        m_dM_base = calcDep(bvM_base, medEqBasis_base, assumptions.depLifeMedEq || 10, assumptions.depMethodMedEq) / 12;
+        bvM_base -= m_dM_base;
+        m_dM_vat = calcDep(bvM_vat, medEqBasis_vat, assumptions.depLifeMedEq || 10, assumptions.depMethodMedEq) / 12;
+        bvM_vat -= m_dM_vat;
+        m_dM_contingency = calcDep(bvM_contingency, medEqBasis_contingency, assumptions.depLifeMedEq || 10, assumptions.depMethodMedEq) / 12;
+        bvM_contingency -= m_dM_contingency;
+      }
+      const m_d2 = m_dM_base;
 
-      const m_d4 = calcDep(
-        bvF,
-        ffeBasis,
-        assumptions.depLifeFFE || 20,
-        assumptions.depMethodFFE,
-      ) / 12;
-      bvF -= m_d4;
+      // 3. Infrastructure
+      const m_dI_base = calcDep(bvI_base, infraBasis_base, assumptions.depLifeInfra || 20, assumptions.depMethodInfra) / 12;
+      bvI_base -= m_dI_base;
+      const m_dI_vat = calcDep(bvI_vat, infraBasis_vat, assumptions.depLifeInfra || 20, assumptions.depMethodInfra) / 12;
+      bvI_vat -= m_dI_vat;
+      const m_dI_contingency = calcDep(bvI_contingency, infraBasis_contingency, assumptions.depLifeInfra || 20, assumptions.depMethodInfra) / 12;
+      bvI_contingency -= m_dI_contingency;
+      const m_d3 = m_dI_base;
 
-      const m_d5 = calcDep(
-        bvS,
-        softCostBasis,
-        assumptions.depLifeSoftCost || 20,
-        assumptions.depMethodSoftCost || "SL",
-      ) / 12;
-      bvS -= m_d5;
+      // 4. FF&E
+      const m_dF_base = calcDep(bvF_base, ffeBasis_base, assumptions.depLifeFFE || 20, assumptions.depMethodFFE) / 12;
+      bvF_base -= m_dF_base;
+      const m_dF_vat = calcDep(bvF_vat, ffeBasis_vat, assumptions.depLifeFFE || 20, assumptions.depMethodFFE) / 12;
+      bvF_vat -= m_dF_vat;
+      const m_dF_contingency = calcDep(bvF_contingency, ffeBasis_contingency, assumptions.depLifeFFE || 20, assumptions.depMethodFFE) / 12;
+      bvF_contingency -= m_dF_contingency;
+      const m_d4 = m_dF_base;
 
-      const m_dep = m_d1 + m_d2 + m_d3 + m_d4 + m_d5;
+      // 5. Sharing Development
+      const m_dSharing_base = calcDep(bvSharing_base, sharingBasis_base, assumptions.depLifeInfra || 20, assumptions.depMethodInfra) / 12;
+      bvSharing_base -= m_dSharing_base;
+      const m_dSharing_vat = calcDep(bvSharing_vat, sharingBasis_vat, assumptions.depLifeInfra || 20, assumptions.depMethodInfra) / 12;
+      bvSharing_vat -= m_dSharing_vat;
+      const m_dSharing_contingency = calcDep(bvSharing_contingency, sharingBasis_contingency, assumptions.depLifeInfra || 20, assumptions.depMethodInfra) / 12;
+      bvSharing_contingency -= m_dSharing_contingency;
+      const m_dSharing = m_dSharing_base;
+
+      // 6. Consultant & Design (Soft Cost)
+      const m_dConsultant_base = calcDep(bvConsultant_base, consultantBasis_base, assumptions.depLifeSoftCost || 20, assumptions.depMethodSoftCost || "SL") / 12;
+      bvConsultant_base -= m_dConsultant_base;
+      const m_dConsultant_vat = calcDep(bvConsultant_vat, consultantBasis_vat, assumptions.depLifeSoftCost || 20, assumptions.depMethodSoftCost || "SL") / 12;
+      bvConsultant_vat -= m_dConsultant_vat;
+      const m_dConsultant_contingency = calcDep(bvConsultant_contingency, consultantBasis_contingency, assumptions.depLifeSoftCost || 20, assumptions.depMethodSoftCost || "SL") / 12;
+      bvConsultant_contingency -= m_dConsultant_contingency;
+      const m_dConsultant = m_dConsultant_base;
+
+      // 7. Licenses & Permits (Soft Cost, exempt from VAT)
+      const m_dLicense_base = calcDep(bvLicense_base, licenseBasis_base, assumptions.depLifeSoftCost || 20, assumptions.depMethodSoftCost || "SL") / 12;
+      bvLicense_base -= m_dLicense_base;
+      const m_dLicense_vat = 0;
+      const m_dLicense_contingency = calcDep(bvLicense_contingency, licenseBasis_contingency, assumptions.depLifeSoftCost || 20, assumptions.depMethodSoftCost || "SL") / 12;
+      bvLicense_contingency -= m_dLicense_contingency;
+      const m_dLicense = m_dLicense_base;
+
+      // Sum all components of VAT & Contingency
+      const m_dVat = m_dB_vat + m_dM_vat + m_dI_vat + m_dF_vat + m_dSharing_vat + m_dConsultant_vat + m_dLicense_vat;
+      const m_dContingency = m_dB_contingency + m_dM_contingency + m_dI_contingency + m_dF_contingency + m_dSharing_contingency + m_dConsultant_contingency + m_dLicense_contingency;
+
+      const m_d5 = m_dConsultant + m_dLicense + m_dVat + m_dContingency;
+      const m_dep = m_d1 + m_d2 + m_d3 + m_d4 + m_dSharing + m_d5;
 
       const m_ebt = m_ebitda - m_interest - m_dep;
       const m_tax = m_ebt > 0 ? m_ebt * (assumptions.corporateTax / 100) : 0;
@@ -1660,6 +2097,9 @@ const runPropCoEngine = (assumptions, opCoModelData, config) => {
       monthly.principal.push(m_principal);
       monthly.interestExLand.push(m_interestExLand);
       monthly.principalExLand.push(m_principalExLand);
+      monthly.hardSpend.push(0);
+      monthly.softSpend.push(0);
+      monthly.totalSpend.push(0);
       monthly.dep.push(m_dep);
       monthly.ebt.push(m_ebt);
       monthly.corpTax.push(m_tax);
@@ -1678,6 +2118,21 @@ const runPropCoEngine = (assumptions, opCoModelData, config) => {
       monthly.avgDscr.push(m_interest + m_principal > 0 ? m_ebitda / (m_interest + m_principal) : 5);
       monthly.avgYield.push(totalCapex > 0 ? (m_revenue * 12 / totalCapex) * 100 : 0);
       monthly.yocExLand.push(totalCapexExLand > 0 ? (m_ebitda * 12 / totalCapexExLand) * 100 : 0);
+      
+      monthly.landSpend.push(0);
+      monthly.buildSpend.push(0);
+      monthly.eqSpend.push(0);
+      monthly.infraSpend.push(0);
+      monthly.ffeSpend.push(0);
+      monthly.sharingSpend.push(0);
+      monthly.consultantSpend.push(0);
+      monthly.licenseSpend.push(0);
+      monthly.vatSpend.push(0);
+      monthly.contingencySpend.push(0);
+      monthly.hardSpend.push(0);
+      monthly.softSpend.push(0);
+      monthly.totalSpend.push(0);
+      monthly.debtDraw.push(0);
 
       year_revenue += m_revenue;
       year_maint += m_maint;
@@ -1691,6 +2146,16 @@ const runPropCoEngine = (assumptions, opCoModelData, config) => {
       year_interestExLand += m_interestExLand;
       year_principalExLand += m_principalExLand;
       year_dep += m_dep;
+      year_depBuild += m_d1;
+      year_depMedEq += m_d2;
+      year_depInfra += m_d3;
+      year_depFfe += m_d4;
+      year_depSharing += m_dSharing;
+      year_depConsultant += m_dConsultant;
+      year_depLicense += m_dLicense;
+      year_depVat += m_dVat;
+      year_depContingency += m_dContingency;
+      year_depSoft += m_d5;
       year_ebt += m_ebt;
       year_tax += m_tax;
       year_netIncome += m_netIncome;
@@ -1722,6 +2187,16 @@ const runPropCoEngine = (assumptions, opCoModelData, config) => {
       principal: year_principal,
       debtBalance: outstandingDebt,
       dep: year_dep,
+      depBuild: year_depBuild,
+      depMedEq: year_depMedEq,
+      depInfra: year_depInfra,
+      depFfe: year_depFfe,
+      depSharing: year_depSharing,
+      depConsultant: year_depConsultant,
+      depLicense: year_depLicense,
+      depVat: year_depVat,
+      depContingency: year_depContingency,
+      depSoft: year_depSoft,
       corpTax: year_tax,
       netIncome: year_netIncome,
       deferredCapex: year_deferredCapex,
@@ -1734,6 +2209,20 @@ const runPropCoEngine = (assumptions, opCoModelData, config) => {
       interestExLand: year_interestExLand,
       principalExLand: year_principalExLand,
       debtBalanceExLand: outstandingDebtExLand,
+      landSpend: 0,
+      buildSpend: 0,
+      eqSpend: 0,
+      infraSpend: 0,
+      ffeSpend: 0,
+      sharingSpend: 0,
+      consultantSpend: 0,
+      licenseSpend: 0,
+      vatSpend: 0,
+      contingencySpend: 0,
+      hardSpend: 0,
+      softSpend: 0,
+      totalSpend: 0,
+      debtDraw: 0,
       exit: year_exit,
       netExitProceeds: year_exit,
       ebt: year_ebt,
@@ -1755,8 +2244,8 @@ const runPropCoEngine = (assumptions, opCoModelData, config) => {
     metrics: {
       totalCapex,
       totalDebt,
-      totalEquity,
-      totalInvestment: Math.abs(equityCum) + totalDebt,
+      totalEquity: peakEquityRequired,
+      totalInvestment: peakTotalInvestment,
       irr: calculateIRR(equityCfsMonthly, 'monthly'),
       npv: calculateNPV(equityCfsMonthly, assumptions.discountRate, 'monthly'),
       unleveredIrr: calculateIRR(unleveredCfsMonthly, 'monthly'),
@@ -1816,6 +2305,16 @@ const runPropCoEngine = (assumptions, opCoModelData, config) => {
         0,
       ),
       dep: annualData.reduce((acc, d) => acc + (d.dep || 0), 0),
+      depBuild: annualData.reduce((acc, d) => acc + (d.depBuild || 0), 0),
+      depMedEq: annualData.reduce((acc, d) => acc + (d.depMedEq || 0), 0),
+      depInfra: annualData.reduce((acc, d) => acc + (d.depInfra || 0), 0),
+      depFfe: annualData.reduce((acc, d) => acc + (d.depFfe || 0), 0),
+      depSharing: annualData.reduce((acc, d) => acc + (d.depSharing || 0), 0),
+      depConsultant: annualData.reduce((acc, d) => acc + (d.depConsultant || 0), 0),
+      depLicense: annualData.reduce((acc, d) => acc + (d.depLicense || 0), 0),
+      depVat: annualData.reduce((acc, d) => acc + (d.depVat || 0), 0),
+      depContingency: annualData.reduce((acc, d) => acc + (d.depContingency || 0), 0),
+      depSoft: annualData.reduce((acc, d) => acc + (d.depSoft || 0), 0),
       ebt: annualData.reduce((acc, d) => acc + (d.ebt || 0), 0),
       corpTax: annualData.reduce((acc, d) => acc + (d.corpTax || 0), 0),
       netIncome: annualData.reduce((acc, d) => acc + (d.netIncome || 0), 0),
@@ -1823,6 +2322,20 @@ const runPropCoEngine = (assumptions, opCoModelData, config) => {
         (acc, d) => acc + (d.deferredCapex || 0),
         0,
       ),
+      landSpend: annualData.reduce((acc, d) => acc + (d.landSpend || 0), 0),
+      buildSpend: annualData.reduce((acc, d) => acc + (d.buildSpend || 0), 0),
+      eqSpend: annualData.reduce((acc, d) => acc + (d.eqSpend || 0), 0),
+      infraSpend: annualData.reduce((acc, d) => acc + (d.infraSpend || 0), 0),
+      ffeSpend: annualData.reduce((acc, d) => acc + (d.ffeSpend || 0), 0),
+      sharingSpend: annualData.reduce((acc, d) => acc + (d.sharingSpend || 0), 0),
+      consultantSpend: annualData.reduce((acc, d) => acc + (d.consultantSpend || 0), 0),
+      licenseSpend: annualData.reduce((acc, d) => acc + (d.licenseSpend || 0), 0),
+      vatSpend: annualData.reduce((acc, d) => acc + (d.vatSpend || 0), 0),
+      contingencySpend: annualData.reduce((acc, d) => acc + (d.contingencySpend || 0), 0),
+      hardSpend: annualData.reduce((acc, d) => acc + (d.hardSpend || 0), 0),
+      softSpend: annualData.reduce((acc, d) => acc + (d.softSpend || 0), 0),
+      totalSpend: annualData.reduce((acc, d) => acc + (d.totalSpend || 0), 0),
+      debtDraw: annualData.reduce((acc, d) => acc + (d.debtDraw || 0), 0),
       fcfe: annualData.reduce((acc, d) => acc + (d.fcfe || 0), 0),
       netExitProceeds: annualData.reduce(
         (acc, d) => acc + (d.netExitProceeds || 0),
@@ -3169,6 +3682,49 @@ const TableRow = memo(
     );
   },
 );
+
+const ExpandableDataRowGroup = ({ parentLabel, parentDk, parentTotal, data, childrenData }) => {
+  const [isExpanded, setIsExpanded] = useState(false);
+  
+  return (
+    <>
+      <TableRow 
+        label={
+          <div 
+             className="flex items-center cursor-pointer hover:text-[#1E2F31] -ml-4" 
+             onClick={() => setIsExpanded(!isExpanded)}
+          >
+             <div className="flex items-center justify-center w-4 shrink-0">
+               <ChevronDown size={14} className={`text-[#9B8B70] transition-transform duration-200 ${!isExpanded ? "-rotate-90" : "rotate-0"}`} />
+             </div>
+             <span>{parentLabel}</span>
+          </div>
+        }
+        data={data}
+        dk={parentDk}
+        total={parentTotal}
+        isIndent
+      />
+      {isExpanded && childrenData.map((child, i) => (
+        <TableRow
+          key={i}
+          label={
+            <div className="flex items-start pl-4 opacity-90 transition-opacity">
+              <div className="w-3 flex items-start justify-end mr-2 pt-2 shrink-0">
+                 <div className="w-2.5 border-b border-l rounded-bl border-[#A1A1AA] h-2"></div>
+              </div>
+              <span className="text-[#8e8e8e]">{child.label}</span>
+            </div>
+          }
+          data={data}
+          dk={child.dk}
+          total={child.total}
+          isIndent
+        />
+      ))}
+    </>
+  );
+};
 
 const TableSection = memo(({ title, colSpan, type = "default" }) => {
   const bgClass =
@@ -7388,7 +7944,7 @@ SES A&B penetration (approx. 18-20% in Greater Jakarta) is estimated by mapping 
               </h3>
 
               <div className="flex-1 min-h-[180px] relative w-full flex items-center justify-center my-4">
-                <ResponsiveContainer width="100%" height="100%">
+                <LazyResponsiveContainer width="100%" height="100%">
                   <PieChart style={{ outline: 'none' }}>
                     <Pie
                       data={PREM_MKT_PIE_DATA}
@@ -7408,7 +7964,7 @@ SES A&B penetration (approx. 18-20% in Greater Jakarta) is estimated by mapping 
                       <Cell fill="#294043" className="outline-none focus:outline-none" />
                     </Pie>
                   </PieChart>
-                </ResponsiveContainer>
+                </LazyResponsiveContainer>
               </div>
 
               <div className="grid grid-cols-2 gap-4 w-full border-t border-[#D8D8D8] pt-5 mt-auto">
@@ -8208,7 +8764,7 @@ SES A&B penetration (approx. 18-20% in Greater Jakarta) is estimated by mapping 
                 Indonesia Annual Cancer Cases
               </h3>
               <div className="h-48 w-full mb-8">
-                <ResponsiveContainer width="100%" height="100%">
+                <LazyResponsiveContainer width="100%" height="100%">
                   <BarChart data={CANCER_DATA} margin={CHART_MARGINS_BAR}>
                     <XAxis
                       dataKey="name"
@@ -8228,7 +8784,7 @@ SES A&B penetration (approx. 18-20% in Greater Jakarta) is estimated by mapping 
                       ))}
                     </Bar>
                   </BarChart>
-                </ResponsiveContainer>
+                </LazyResponsiveContainer>
               </div>
               <p className="text-[11px] text-[#4C4A4B] mt-auto text-left leading-relaxed">
                 Breast, cervical, lung, colorectal, and liver cancers are the
@@ -8269,7 +8825,7 @@ SES A&B penetration (approx. 18-20% in Greater Jakarta) is estimated by mapping 
                     />
                   </svg>
                 </div>
-                <ResponsiveContainer width="100%" height="100%">
+                <LazyResponsiveContainer width="100%" height="100%">
                   <LineChart data={INSURANCE_DATA} margin={CHART_MARGINS_LINE}>
                     <XAxis
                       dataKey="year"
@@ -8298,7 +8854,7 @@ SES A&B penetration (approx. 18-20% in Greater Jakarta) is estimated by mapping 
                       label={LINE_LABEL_STYLE}
                     />
                   </LineChart>
-                </ResponsiveContainer>
+                </LazyResponsiveContainer>
               </div>
 
               <p className="text-[11px] text-[#4C4A4B] mt-auto text-left leading-relaxed">
@@ -8497,7 +9053,7 @@ const OpCoDashboardView = memo(
             Flow Trajectory
           </h3>
           <div className={isPresenting ? "h-[300px]" : "h-72"}>
-            <ResponsiveContainer width="100%" height="100%">
+            <LazyResponsiveContainer width="100%" height="100%">
               <ComposedChart data={data.operatingData}>
                 <CartesianGrid
                   strokeDasharray="3 3"
@@ -8578,7 +9134,7 @@ const OpCoDashboardView = memo(
                   dot={false}
                 />
               </ComposedChart>
-            </ResponsiveContainer>
+            </LazyResponsiveContainer>
           </div>
         </div>
 
@@ -8589,7 +9145,7 @@ const OpCoDashboardView = memo(
               Trajectory
             </h3>
             <div className="h-56">
-              <ResponsiveContainer width="100%" height="100%">
+              <LazyResponsiveContainer width="100%" height="100%">
                 <LineChart data={data.operatingData}>
                   <CartesianGrid
                     strokeDasharray="3 3"
@@ -8628,7 +9184,7 @@ const OpCoDashboardView = memo(
                     dot={{ r: 3, strokeWidth: 2 }}
                   />
                 </LineChart>
-              </ResponsiveContainer>
+              </LazyResponsiveContainer>
             </div>
           </div>
 
@@ -8637,7 +9193,7 @@ const OpCoDashboardView = memo(
               <Target size={18} className="text-[#99B6AA]" /> Breakeven Audit
             </h3>
             <div className="h-56">
-              <ResponsiveContainer width="100%" height="100%">
+              <LazyResponsiveContainer width="100%" height="100%">
                 <ComposedChart data={data.operatingData}>
                   <CartesianGrid
                     strokeDasharray="3 3"
@@ -8675,7 +9231,7 @@ const OpCoDashboardView = memo(
                     dot={{ r: 3, strokeWidth: 2 }}
                   />
                 </ComposedChart>
-              </ResponsiveContainer>
+              </LazyResponsiveContainer>
             </div>
           </div>
         </div>
@@ -8687,14 +9243,24 @@ const OpCoDashboardView = memo(
 const OpCoCascadeView = memo(({ data, assumptions, viewResolution, setViewResolution }) => {
   const { columns, expandedYears, toggleYear } = useMonthlyColumns(data.annualData, viewResolution);
   const scrollRef = useRef(null);
+  const [isFullScreen, setIsFullScreen] = useState(false);
+  
   return (
-  <div className="bg-white rounded-2xl shadow-sm border border-[#D8D8D8] overflow-hidden h-[calc(100vh-320px)] flex flex-col">
-    <div className="p-4 bg-[#EFEBE7] border-b border-[#D8D8D8] flex justify-between items-center shrink-0">
-      <h3 className="text-xs font-bold uppercase tracking-widest text-[#1E2F31] flex items-center gap-2">
-        <List size={14} /> OpCo Detailed Waterfall
-      </h3>
-      <div className="flex items-center gap-2">
-        <div className="flex items-center bg-white p-0.5 rounded-md border border-[#D8D8D8] shadow-sm mr-2">
+  <div className={`${isFullScreen ? 'fixed inset-0 z-[150] bg-[#F9F8F6] p-4 lg:p-6' : ''}`}>
+    <div className={`bg-white rounded-2xl shadow-sm border border-[#D8D8D8] overflow-hidden flex flex-col ${isFullScreen ? 'h-full' : 'h-[calc(100vh-320px)]'}`}>
+      <div className="p-4 bg-[#EFEBE7] border-b border-[#D8D8D8] flex justify-between items-center shrink-0">
+        <h3 className="text-xs font-bold uppercase tracking-widest text-[#1E2F31] flex items-center gap-2">
+          <List size={14} /> OpCo Detailed Waterfall
+        </h3>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setIsFullScreen(!isFullScreen)}
+            className="p-1 rounded bg-white border border-[#D8D8D8] text-[#1E2F31] shadow-sm hover:bg-[#F9F8F6] transition-colors"
+            title={isFullScreen ? "Minimize" : "Maximize"}
+          >
+            {isFullScreen ? <Minimize2 size={13} strokeWidth={2.5} /> : <Maximize2 size={13} strokeWidth={2.5} />}
+          </button>
+          <div className="flex items-center bg-white p-0.5 rounded-md border border-[#D8D8D8] shadow-sm ml-1 mr-2">
           <button
             onClick={() => setViewResolution('annual')}
             className={`px-2.5 py-1 text-[9px] font-bold uppercase tracking-wider rounded transition-all ${viewResolution === 'annual' ? 'bg-[#1C6048] text-white' : 'text-[#8A8175] hover:text-[#1E2F31] hover:bg-[#F9F8F6]'}`}
@@ -8721,9 +9287,9 @@ const OpCoCascadeView = memo(({ data, assumptions, viewResolution, setViewResolu
     </div>
     <div ref={scrollRef} className="overflow-auto min-h-0 flex-1">
       <table className="w-full text-[11px] text-left border-separate border-spacing-0 min-w-[1000px]">
-        <thead className="bg-white font-bold sticky top-0 z-20 shadow-md">
+        <thead className="bg-white font-bold sticky top-0 z-[50] shadow-md">
           <tr>
-            <th className="px-4 py-3 border-b-2 border-r border-[#D8D8D8] sticky left-0 top-0 bg-white z-30 w-[260px] shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)] text-[#1E2F31]">
+            <th className="px-4 py-3 border-b-2 border-r border-[#D8D8D8] sticky left-0 top-0 bg-white z-[60] w-[260px] shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)] text-[#1E2F31]">
               Line Item
             </th>
             {columns.map((col, i) => (
@@ -8744,7 +9310,7 @@ const OpCoCascadeView = memo(({ data, assumptions, viewResolution, setViewResolu
                 )}
               </th>
             ))}
-            <th className="px-4 py-3 text-right bg-[#EFEBE7] text-[#1E2F31] sticky right-0 top-0 z-30 border-l border-b-2 border-[#D8D8D8] shadow-[-2px_0_5px_-2px_rgba(0,0,0,0.1)]">
+            <th className="px-4 py-3 text-right bg-[#EFEBE7] text-[#1E2F31] sticky right-0 top-0 z-[60] border-l border-b-2 border-[#D8D8D8] shadow-[-2px_0_5px_-2px_rgba(0,0,0,0.1)]">
               Total
             </th>
           </tr>
@@ -8962,6 +9528,7 @@ const OpCoCascadeView = memo(({ data, assumptions, viewResolution, setViewResolu
       </table>
     </div>
   </div>
+  </div>
   );
 });
 
@@ -8977,10 +9544,14 @@ const PropCoDashboardView = memo(
     setTab,
     isPresenting,
   }) => {
-    const pieData = useMemo(() => [
-      { name: "Equity", value: data.metrics.totalEquity },
-      { name: "Bank Loan", value: data.metrics.totalDebt },
-    ], [data.metrics.totalEquity, data.metrics.totalDebt]);
+    const pieData = useMemo(() => {
+      const leasedMedEq = assumptions.medEqProcurement === "lease" ? data.capexDetails.medEqCost : 0;
+      return [
+        { name: "Equity", value: data.metrics.totalEquity },
+        { name: "Bank Loan", value: data.metrics.totalDebt },
+        ...(leasedMedEq > 0 ? [{ name: "Equipment Lease", value: leasedMedEq }] : [])
+      ];
+    }, [data.metrics.totalEquity, data.metrics.totalDebt, data.capexDetails.medEqCost, assumptions.medEqProcurement]);
 
     const [chartMode, setChartMode] = useState("full");
     const chartData =
@@ -9100,7 +9671,7 @@ const PropCoDashboardView = memo(
                 <div
                   className={`w-full relative flex justify-center ${isPresenting ? "h-40" : "h-36"}`}
                 >
-                  <ResponsiveContainer width="100%" height="100%">
+                  <LazyResponsiveContainer width="100%" height="100%">
                     <PieChart style={{ outline: 'none' }}>
                       <Pie
                         data={pieData}
@@ -9116,20 +9687,20 @@ const PropCoDashboardView = memo(
                         {pieData.map((entry, index) => (
                           <Cell
                             key={`cell-src-${index}`}
-                            fill={index === 0 ? "#1C6048" : "#D8D8D8"}
+                            fill={index === 0 ? "#1C6048" : index === 1 ? "#D8D8D8" : "#9B8B70"}
                             className="outline-none focus:outline-none"
                           />
                         ))}
                       </Pie>
                     </PieChart>
-                  </ResponsiveContainer>
+                  </LazyResponsiveContainer>
                   <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
                     <span className="text-sm font-black text-[#1E2F31]">
-                      {formatNumber(data.metrics.totalInvestment, 0)}B
+                      {formatNumber(data.metrics.totalCapex, 0)}B
                     </span>
                   </div>
                 </div>
-                <div className="w-full grid grid-cols-2 gap-2 mt-4 text-center">
+                <div className={`w-full grid ${assumptions.medEqProcurement === "lease" && data.capexDetails.medEqCost > 0 ? "grid-cols-3" : "grid-cols-2"} gap-2 mt-4 text-center`}>
                   <div className="bg-[#EFEBE7] p-2 rounded border border-[#D8D8D8]">
                     <p className="text-[9px] font-bold uppercase text-[#4C4A4B] mb-1">
                       Total Equity
@@ -9146,6 +9717,16 @@ const PropCoDashboardView = memo(
                       {formatCurrency(data.metrics.totalDebt)}
                     </p>
                   </div>
+                  {assumptions.medEqProcurement === "lease" && data.capexDetails.medEqCost > 0 && (
+                    <div className="bg-[#9B8B70]/10 p-2 rounded border border-[#D8D8D8]">
+                      <p className="text-[9px] font-bold uppercase text-[#9B8B70] mb-1 leading-tight">
+                        Equip.<br/>Lease
+                      </p>
+                      <p className="font-black text-[#1E2F31]">
+                        {formatCurrency(data.capexDetails.medEqCost)}
+                      </p>
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -9224,7 +9805,7 @@ const PropCoDashboardView = memo(
                       Total Project Cost
                     </span>
                     <span className="font-mono text-sm font-black text-[#1C6048]">
-                      {formatNumber(data.metrics.totalInvestment, 1)} B
+                      {formatNumber(data.metrics.totalCapex, 1)} B
                     </span>
                   </div>
                 </div>
@@ -9291,7 +9872,7 @@ const PropCoDashboardView = memo(
               </div>
             </div>
             <div className={isPresenting ? "h-[450px]" : "h-[400px]"}>
-              <ResponsiveContainer width="100%" height="100%">
+              <LazyResponsiveContainer width="100%" height="100%">
                 <ComposedChart data={chartData}>
                   <CartesianGrid
                     strokeDasharray="3 3"
@@ -9355,7 +9936,7 @@ const PropCoDashboardView = memo(
                     dot={false}
                   />
                 </ComposedChart>
-              </ResponsiveContainer>
+              </LazyResponsiveContainer>
             </div>
           </div>
         </div>
@@ -9368,11 +9949,12 @@ const PropCoCascadeView = memo(({ data, onExport, viewResolution, setViewResolut
   const { columns, expandedYears, toggleYear } = useMonthlyColumns(data.annualData, viewResolution);
   const scrollRef = useRef(null);
   const [showDevBudget, setShowDevBudget] = useState(true);
+  const [isFullScreen, setIsFullScreen] = useState(false);
 
   return (
-  <div className="space-y-6">
-    <div className={`grid grid-cols-1 gap-6 animate-in slide-in-from-bottom-4 duration-500 ${showDevBudget ? 'md:grid-cols-3' : 'md:grid-cols-1'}`}>
-      {showDevBudget && (
+  <div className={`space-y-6 ${isFullScreen ? 'fixed inset-0 z-[150] bg-[#F9F8F6] p-4 lg:p-6 overflow-hidden flex flex-col' : ''}`}>
+    <div className={`grid grid-cols-1 gap-6 animate-in slide-in-from-bottom-4 duration-500 ${isFullScreen ? 'flex-1 overflow-hidden' : ''} ${showDevBudget && !isFullScreen ? 'md:grid-cols-3' : 'md:grid-cols-1'}`}>
+      {showDevBudget && !isFullScreen && (
         <div className="md:col-span-1 bg-white p-5 lg:p-6 rounded-2xl shadow-sm border border-[#D8D8D8] h-[calc(100vh-320px)] overflow-y-auto custom-scrollbar">
           <div className="flex justify-between items-center mb-4">
             <h3 className="font-bold text-[#1E2F31] flex items-center gap-2">
@@ -9490,8 +10072,8 @@ const PropCoCascadeView = memo(({ data, onExport, viewResolution, setViewResolut
 
               <CapexRow
                 label="TOTAL INVESTMENT"
-                amount={data.metrics.totalInvestment}
-                total={data.metrics.totalInvestment}
+                amount={data.metrics.totalCapex}
+                total={data.metrics.totalCapex}
                 isSubtotal
               />
             </tbody>
@@ -9500,7 +10082,7 @@ const PropCoCascadeView = memo(({ data, onExport, viewResolution, setViewResolut
       </div>
       )}
 
-      <div className={`${showDevBudget ? 'md:col-span-2' : 'md:col-span-1'} bg-white rounded-2xl shadow-sm border border-[#D8D8D8] overflow-hidden h-[calc(100vh-320px)] flex flex-col`}>
+      <div className={`${showDevBudget && !isFullScreen ? 'md:col-span-2' : 'md:col-span-1'} bg-white rounded-2xl shadow-sm border border-[#D8D8D8] overflow-hidden ${isFullScreen ? 'h-full' : 'h-[calc(100vh-320px)]'} flex flex-col`}>
         <div className="p-4 bg-[#EFEBE7] border-b border-[#D8D8D8] flex justify-between items-center shrink-0">
           <h3 className="text-xs font-bold uppercase tracking-widest text-[#1E2F31] flex items-center gap-2">
             <List size={14} /> PropCo Cash Flow Detail
@@ -9514,7 +10096,14 @@ const PropCoCascadeView = memo(({ data, onExport, viewResolution, setViewResolut
             )}
           </h3>
           <div className="flex items-center gap-2">
-            <div className="flex items-center bg-white p-0.5 rounded-md border border-[#D8D8D8] shadow-sm mr-2">
+            <button
+               onClick={() => setIsFullScreen(!isFullScreen)}
+               className="p-1 rounded bg-white border border-[#D8D8D8] text-[#1E2F31] shadow-sm hover:bg-[#F9F8F6] transition-colors"
+               title={isFullScreen ? "Minimize" : "Maximize"}
+            >
+               {isFullScreen ? <Minimize2 size={13} strokeWidth={2.5} /> : <Maximize2 size={13} strokeWidth={2.5} />}
+            </button>
+            <div className="flex items-center bg-white p-0.5 rounded-md border border-[#D8D8D8] shadow-sm ml-1 mr-2">
               <button
                 onClick={() => setViewResolution('annual')}
                 className={`px-2.5 py-1 text-[9px] font-bold uppercase tracking-wider rounded transition-all ${viewResolution === 'annual' ? 'bg-[#1C6048] text-white' : 'text-[#8A8175] hover:text-[#1E2F31] hover:bg-[#F9F8F6]'}`}
@@ -9541,9 +10130,9 @@ const PropCoCascadeView = memo(({ data, onExport, viewResolution, setViewResolut
         </div>
         <div ref={scrollRef} className="overflow-auto min-h-0 flex-1">
           <table className="w-full text-[11px] text-left border-separate border-spacing-0 min-w-[1000px]">
-            <thead className="bg-[#EFEBE7] font-bold sticky top-0 z-20 shadow-md">
+            <thead className="bg-[#EFEBE7] font-bold sticky top-0 z-[50] shadow-md">
               <tr>
-                <th className="px-4 py-3 border-b-2 border-r border-[#D8D8D8] sticky left-0 top-0 bg-[#EFEBE7] z-30 w-[260px] shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)] text-[#1E2F31]">
+                <th className="px-4 py-3 border-b-2 border-r border-[#D8D8D8] sticky left-0 top-0 bg-[#EFEBE7] z-[60] w-[260px] shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)] text-[#1E2F31]">
                   Line Item
                 </th>
                 {columns.map((col, i) => (
@@ -9564,14 +10153,68 @@ const PropCoCascadeView = memo(({ data, onExport, viewResolution, setViewResolut
                     )}
                   </th>
                 ))}
-                <th className="px-4 py-3 text-right bg-[#EFEBE7] text-[#1E2F31] sticky right-0 top-0 z-30 border-l border-b-2 border-[#D8D8D8] shadow-[-2px_0_5px_-2px_rgba(0,0,0,0.1)]">
+                <th className="px-4 py-3 text-right bg-[#EFEBE7] text-[#1E2F31] sticky right-0 top-0 z-[60] border-l border-b-2 border-[#D8D8D8] shadow-[-2px_0_5px_-2px_rgba(0,0,0,0.1)]">
                   Total
                 </th>
               </tr>
             </thead>
             <tbody>
               <TableSection
-                title="A. Operating Revenue & Expense"
+                title="A. Project Development Spending"
+                colSpan={columns.length + 2}
+                type="indigo"
+              />
+              <TableRow
+                label="Land Cost"
+                data={columns}
+                dk="landSpend"
+                total={data.totals.landSpend}
+                isIndent
+              />
+              <ExpandableDataRowGroup
+                parentLabel="Total Hard Costs"
+                parentDk="hardSpend"
+                parentTotal={data.totals.hardSpend}
+                data={columns}
+                childrenData={[
+                  { label: "Construction", dk: "buildSpend", total: data.totals.buildSpend },
+                  { label: "Medical Equip.", dk: "eqSpend", total: data.totals.eqSpend },
+                  { label: "Infrastructure", dk: "infraSpend", total: data.totals.infraSpend },
+                  { label: "FF&E", dk: "ffeSpend", total: data.totals.ffeSpend },
+                  { label: "Sharing Dev.", dk: "sharingSpend", total: data.totals.sharingSpend },
+                ]}
+              />
+              <ExpandableDataRowGroup
+                parentLabel="Total Soft Costs"
+                parentDk="softSpend"
+                parentTotal={data.totals.softSpend}
+                data={columns}
+                childrenData={[
+                  { label: "Consultant", dk: "consultantSpend", total: data.totals.consultantSpend },
+                  { label: "License", dk: "licenseSpend", total: data.totals.licenseSpend },
+                  { label: "VAT", dk: "vatSpend", total: data.totals.vatSpend },
+                  { label: "Contingency", dk: "contingencySpend", total: data.totals.contingencySpend },
+                  { label: "Dev. G&A", dk: "devGa", total: data.totals.devGa },
+                  { label: "Dev. CAR", dk: "devCar", total: data.totals.devCar },
+                ]}
+              />
+              <TableRow
+                label="PROJECT DEVELOPMENT SPEND"
+                data={columns}
+                dk="totalSpend"
+                total={data.totals.totalSpend}
+                highlight
+              />
+              <TableRow
+                label="Debt Drawdown"
+                data={columns}
+                dk="debtDraw"
+                total={data.totals.debtDraw}
+                isIndent
+              />
+
+              <TableSection
+                title="B. Operating Revenue & Expense"
                 colSpan={columns.length + 2}
               />
               <TableRow
@@ -9638,7 +10281,7 @@ const PropCoCascadeView = memo(({ data, onExport, viewResolution, setViewResolut
               />
 
               <TableSection
-                title="B. Debt Service & Taxes"
+                title="C. Debt Service & Taxes"
                 colSpan={columns.length + 2}
               />
               <TableRow
@@ -9661,12 +10304,22 @@ const PropCoCascadeView = memo(({ data, onExport, viewResolution, setViewResolut
                 dk="dscr"
                 tooltip="Debt Service Coverage Ratio: Cash Available for Debt Service (EBITDA) divided by Total Debt Service (Principal + Interest). Benchmark: > 1.25x."
               />
-              <TableRow
-                label="Depreciation (D&A)"
+              <ExpandableDataRowGroup
+                parentLabel="Depreciation (D&A)"
+                parentDk="dep"
+                parentTotal={data.totals.dep}
                 data={columns}
-                dk="dep"
-                total={data.totals.dep}
-                isIndent
+                childrenData={[
+                  { label: "Construction", dk: "depBuild", total: data.totals.depBuild },
+                  { label: "Medical Equipment", dk: "depMedEq", total: data.totals.depMedEq },
+                  { label: "Infrastructure", dk: "depInfra", total: data.totals.depInfra },
+                  { label: "FF&E", dk: "depFfe", total: data.totals.depFfe },
+                  { label: "Sharing Dev.", dk: "depSharing", total: data.totals.depSharing },
+                  { label: "Consultant", dk: "depConsultant", total: data.totals.depConsultant },
+                  { label: "License", dk: "depLicense", total: data.totals.depLicense },
+                  { label: "VAT", dk: "depVat", total: data.totals.depVat },
+                  { label: "Contingency", dk: "depContingency", total: data.totals.depContingency },
+                ]}
               />
               <TableRow
                 label="Earnings Before Tax (EBT)"
@@ -9684,7 +10337,7 @@ const PropCoCascadeView = memo(({ data, onExport, viewResolution, setViewResolut
               />
 
               <TableSection
-                title="C. Return Metrics"
+                title="D. Return Metrics"
                 colSpan={columns.length + 2}
                 type="emerald"
               />
@@ -9728,7 +10381,7 @@ const PropCoCascadeView = memo(({ data, onExport, viewResolution, setViewResolut
               />
 
               <TableSection
-                title="D. Ex-Land Cash Flows (Optional)"
+                title="E. Ex-Land Cash Flows (Optional)"
                 colSpan={columns.length + 2}
               />
               <TableRow
@@ -10037,7 +10690,7 @@ const ConsolidatedDashboardView = memo(
             Look-Through PnL
           </h3>
           <div className={isPresenting ? "h-[300px]" : "h-72"}>
-            <ResponsiveContainer width="100%" height="100%">
+            <LazyResponsiveContainer width="100%" height="100%">
               <ComposedChart data={data.operatingData}>
                 <CartesianGrid
                   strokeDasharray="3 3"
@@ -10101,7 +10754,7 @@ const ConsolidatedDashboardView = memo(
                   }}
                 />
               </ComposedChart>
-            </ResponsiveContainer>
+            </LazyResponsiveContainer>
           </div>
         </div>
 
@@ -10111,7 +10764,7 @@ const ConsolidatedDashboardView = memo(
             Flow Trajectory
           </h3>
           <div className={isPresenting ? "h-[450px]" : "h-80"}>
-            <ResponsiveContainer width="100%" height="100%">
+            <LazyResponsiveContainer width="100%" height="100%">
               <ComposedChart data={data.annualData}>
                 <CartesianGrid
                   strokeDasharray="3 3"
@@ -10192,7 +10845,7 @@ const ConsolidatedDashboardView = memo(
                   strokeDasharray="5 5"
                 />
               </ComposedChart>
-            </ResponsiveContainer>
+            </LazyResponsiveContainer>
           </div>
         </div>
       </div>
@@ -10203,6 +10856,7 @@ const ConsolidatedDashboardView = memo(
 const ConsolidatedCascadeView = memo(({ data, viewResolution, setViewResolution }) => {
   const { columns, expandedYears, toggleYear } = useMonthlyColumns(data.annualData, viewResolution);
   const scrollRef = useRef(null);
+  const [isFullScreen, setIsFullScreen] = useState(false);
 
   const chartData = useMemo(() => {
     let cumInflow = 0;
@@ -10266,15 +10920,22 @@ const ConsolidatedCascadeView = memo(({ data, viewResolution, setViewResolution 
   }, [data.annualData]);
 
   return (
-    <div className="space-y-6">
+    <div className={`space-y-6 ${isFullScreen ? 'fixed inset-0 z-[150] bg-[#F9F8F6] p-4 lg:p-6 pb-24 overflow-y-auto flex flex-col' : ''}`}>
       {/* Detailed HoldCo Waterfall Panel */}
-      <div className="bg-white rounded-2xl shadow-sm border border-[#D8D8D8] overflow-hidden max-h-[calc(100vh-320px)] h-fit flex flex-col">
+      <div className={`bg-white rounded-2xl shadow-sm border border-[#D8D8D8] overflow-hidden flex flex-col ${isFullScreen ? 'flex-1 overflow-hidden min-h-0 h-full' : 'max-h-[calc(100vh-320px)] h-fit'}`}>
         <div className="p-4 bg-[#EFEBE7] border-b border-[#D8D8D8] flex justify-between items-center shrink-0">
           <h3 className="text-xs font-bold uppercase tracking-widest text-[#1E2F31] flex items-center gap-2">
             <List size={14} /> Consolidated HoldCo Waterfall
           </h3>
           <div className="flex items-center gap-2">
-            <div className="flex items-center bg-white p-0.5 rounded-md border border-[#D8D8D8] shadow-sm mr-2">
+            <button
+               onClick={() => setIsFullScreen(!isFullScreen)}
+               className="p-1 rounded bg-white border border-[#D8D8D8] text-[#1E2F31] shadow-sm hover:bg-[#F9F8F6] transition-colors"
+               title={isFullScreen ? "Minimize" : "Maximize"}
+            >
+               {isFullScreen ? <Minimize2 size={13} strokeWidth={2.5} /> : <Maximize2 size={13} strokeWidth={2.5} />}
+            </button>
+            <div className="flex items-center bg-white p-0.5 rounded-md border border-[#D8D8D8] shadow-sm ml-1 mr-2">
               <button
                 onClick={() => setViewResolution('annual')}
                 className={`px-2.5 py-1 text-[9px] font-bold uppercase tracking-wider rounded transition-all ${viewResolution === 'annual' ? 'bg-[#1C6048] text-white' : 'text-[#8A8175] hover:text-[#1E2F31] hover:bg-[#F9F8F6]'}`}
@@ -10301,9 +10962,9 @@ const ConsolidatedCascadeView = memo(({ data, viewResolution, setViewResolution 
         </div>
         <div ref={scrollRef} className="overflow-auto min-h-0 flex-1">
           <table className="w-full text-[11px] text-left border-separate border-spacing-0 min-w-[1000px]">
-            <thead className="bg-[#EFEBE7] font-bold sticky top-0 z-20 shadow-md">
+            <thead className="bg-[#EFEBE7] font-bold sticky top-0 z-[50] shadow-md">
               <tr>
-                <th className="px-4 py-3 border-b-2 border-r border-[#D8D8D8] sticky left-0 top-0 bg-[#EFEBE7] z-30 w-[260px] shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)] text-[#1E2F31]">
+                <th className="px-4 py-3 border-b-2 border-r border-[#D8D8D8] sticky left-0 top-0 bg-[#EFEBE7] z-[60] w-[260px] shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)] text-[#1E2F31]">
                   Line Item
                 </th>
                 {columns.map((col, i) => (
@@ -10324,7 +10985,7 @@ const ConsolidatedCascadeView = memo(({ data, viewResolution, setViewResolution 
                     )}
                   </th>
                 ))}
-                <th className="px-4 py-3 text-right bg-[#EFEBE7] text-[#1E2F31] sticky right-0 top-0 z-30 border-l border-b-2 border-[#D8D8D8] shadow-[-2px_0_5px_-2px_rgba(0,0,0,0.1)]">
+                <th className="px-4 py-3 text-right bg-[#EFEBE7] text-[#1E2F31] sticky right-0 top-0 z-[60] border-l border-b-2 border-[#D8D8D8] shadow-[-2px_0_5px_-2px_rgba(0,0,0,0.1)]">
                   Total
                 </th>
               </tr>
@@ -10431,7 +11092,7 @@ const ConsolidatedCascadeView = memo(({ data, viewResolution, setViewResolution 
           </div>
 
           <div className="h-[210px] w-full mt-2">
-            <ResponsiveContainer width="100%" height="100%">
+            <LazyResponsiveContainer width="100%" height="100%">
               <ComposedChart data={chartData} margin={{ top: 10, right: 10, left: -15, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#F1F1F1" vertical={false} />
                 <XAxis 
@@ -10493,7 +11154,7 @@ const ConsolidatedCascadeView = memo(({ data, viewResolution, setViewResolution 
                   activeDot={{ r: 4 }} 
                 />
               </ComposedChart>
-            </ResponsiveContainer>
+            </LazyResponsiveContainer>
           </div>
         </div>
 
@@ -10950,8 +11611,7 @@ const PropCoSettingsView = memo(
     const medEqFullValueUi = assumptions.includeMedEq
       ? (assumptions.capexMedEqQty * assumptions.capexMedEqPrice) / 1000
       : 0;
-    const medEqCostForUi =
-      assumptions.medEqProcurement !== "lease" ? medEqFullValueUi : 0;
+    const medEqCostForUi = medEqFullValueUi;
     const infraCostForUi =
       (assumptions.capexInfraQty * assumptions.capexInfraPrice) / 1000;
     const ffeCostForUi = assumptions.includeFFE
@@ -10972,12 +11632,14 @@ const PropCoSettingsView = memo(
       buildCostForUi +
       ffeCostForUi +
       infraCostForUi +
+      medEqCostForUi +
       sharingDevCostForUi;
     const vatCostUi = vatBaseUi * ((assumptions.capexVat || 0) / 100);
     const contingencyBaseUi =
       licenseCostUi +
       consultantCostUi +
       buildCostForUi +
+      medEqCostForUi +
       ffeCostForUi +
       infraCostForUi +
       sharingDevCostForUi +
@@ -11173,13 +11835,17 @@ const PropCoSettingsView = memo(
                       unit="Yr"
                       isLocked={isLocked}
                     />
-                    <AssumptionRow
-                      label="Purchase Amount"
-                      val={assumptions.medEqPurchaseAmount}
-                      set={(v) => onChange("medEqPurchaseAmount", v)}
-                      unit="M"
-                      isLocked={isLocked}
-                    />
+                    <div className="flex justify-between items-center bg-[#EFEBE7] p-2 rounded">
+                      <span className="text-[10px] uppercase font-bold text-[#8A8175] mr-2">
+                        Purchase Amount
+                      </span>
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-black text-[#1E2F31]">
+                          {formatNumber(medEqCostForUi * 1000, 0)}
+                        </span>
+                        <span className="text-[10px] text-[#8A8175] font-bold">M</span>
+                      </div>
+                    </div>
                   </>
                 )}
               </div>
@@ -11343,13 +12009,6 @@ const PropCoSettingsView = memo(
               isLocked={isLocked}
             />
             <AssumptionRow
-              label="Const. Overhead"
-              val={assumptions.constructionOpexMonthly}
-              set={(v) => onChange("constructionOpexMonthly", v)}
-              unit="B/Mo"
-              isLocked={isLocked}
-            />
-            <AssumptionRow
               label="Dev. G&A (monthly)"
               val={assumptions.devGaMonthly}
               set={(v) => onChange("devGaMonthly", v)}
@@ -11360,7 +12019,7 @@ const PropCoSettingsView = memo(
               label="Dev. CAR (% of build)"
               val={assumptions.devCarPct}
               set={(v) => onChange("devCarPct", v)}
-              unit="% / Mo"
+              unit="% Total"
               isLocked={isLocked}
             />
             <AssumptionRow
@@ -11586,7 +12245,7 @@ const OpCoSensitivityView = memo(({ assumptions }) => {
   );
 });
 
-const PropCoSensitivityView = memo(({ assumptions, opCoModelData }) => {
+const PropCoSensitivityView = memo(({ assumptions, opCoModelData, groups }) => {
   const costSteps = [9, 10, 11.5, 13, 14];
   const rateSteps = [8, 9, 10.5, 12, 13];
   const paybackMatrix = costSteps.map((bc) =>
@@ -11595,6 +12254,8 @@ const PropCoSensitivityView = memo(({ assumptions, opCoModelData }) => {
         runPropCoEngine(
           { ...assumptions, buildCost: bc, interestRate: ir },
           opCoModelData,
+          null,
+          groups
         ).metrics.operatingPayback || 0,
     ),
   );
@@ -11701,13 +12362,12 @@ function AIAuditView({
 // ==========================================
 // MASTER TIMELINE VIEW (GANTT CHART)
 // ==========================================
-const MasterTimelineView = memo(({ isPresenting }) => {
+const MasterTimelineView = memo(({ isPresenting, groups, setGroups }) => {
   const [activeYearFilter, setActiveYearFilter] = useState("All");
   const [selectedMonthIndex, setSelectedMonthIndex] = useState(5);
   const [highlightCritical, setHighlightCritical] = useState(true);
   const [timelineSearch, setTimelineSearch] = useState("");
 
-  const [groups, setGroups] = useState(INITIAL_GROUPS);
   const [endYear, setEndYear] = useState(DEFAULT_END_YEAR);
 
   const [isCreatingTask, setIsCreatingTask] = useState(false);
@@ -13175,9 +13835,9 @@ const MasterTimelineView = memo(({ isPresenting }) => {
                 <h4 className="text-[10px] font-black uppercase text-[#9B8B70] tracking-wider mb-2">
                   Target Dependencies
                 </h4>
-                {selectedTask.dependencies.length > 0 ? (
+                {(selectedTask.dependencies || []).length > 0 ? (
                   <div className="flex flex-col gap-1.5">
-                    {selectedTask.dependencies.map((depId) => {
+                    {(selectedTask.dependencies || []).map((depId) => {
                       const depName = getTaskNameById(depId);
                       return (
                         <div
@@ -13473,6 +14133,7 @@ export default function App() {
 
   const [saveStatusOpCo, setSaveStatusOpCo] = useState("idle");
   const [saveStatusPropCo, setSaveStatusPropCo] = useState("idle");
+  const [groups, setGroups] = useState(INITIAL_GROUPS);
 
   const [opCoAssumptions, setOpCoAssumptions] = useState(
     DEFAULT_OPCO_ASSUMPTIONS,
@@ -13610,7 +14271,7 @@ export default function App() {
     if (holdCoScenario === "debt_free") {
       const p1 = { exitYear: -1, projYears: 30 };
       const op1 = runOpCoEngine(opCoAssumptions, p1);
-      const pr1 = runPropCoEngine(propCoAssumptions, op1, p1);
+      const pr1 = runPropCoEngine(propCoAssumptions, op1, p1, groups);
       const cons1 = runConsolidatedEngine(op1, pr1, opCoAssumptions);
       
       const devYears = Math.max(1, Math.ceil((propCoAssumptions.devDurationMonths || 12) / 12));
@@ -13624,7 +14285,7 @@ export default function App() {
     if (holdCoScenario === "breakeven") {
       const p1 = { exitYear: -1, projYears: 30 }; // -1 forces the engine to ignore individual settings and test pure operations
       const op1 = runOpCoEngine(opCoAssumptions, p1);
-      const pr1 = runPropCoEngine(propCoAssumptions, op1, p1);
+      const pr1 = runPropCoEngine(propCoAssumptions, op1, p1, groups);
       const cons1 = runConsolidatedEngine(op1, pr1, opCoAssumptions);
       
       const devYears = Math.max(1, Math.ceil((propCoAssumptions.devDurationMonths || 12) / 12));
@@ -13650,8 +14311,8 @@ export default function App() {
     [opCoAssumptions, projConfig],
   );
   const propCoModelData = useMemo(
-    () => runPropCoEngine(propCoAssumptions, opCoModelData, projConfig),
-    [propCoAssumptions, opCoModelData, projConfig],
+    () => runPropCoEngine(propCoAssumptions, opCoModelData, projConfig, groups),
+    [propCoAssumptions, opCoModelData, projConfig, groups],
   );
   const consolidatedModelData = useMemo(
     () =>
@@ -14224,7 +14885,11 @@ export default function App() {
           <CollaborationStrategyView isPresenting={isPresenting} />
         )}
         {activeTab === "timeline" && (
-          <MasterTimelineView isPresenting={isPresenting} />
+          <MasterTimelineView 
+            isPresenting={isPresenting} 
+            groups={groups}
+            setGroups={setGroups}
+          />
         )}
         {activeTab !== "overview" &&
           activeTab !== "study" &&
@@ -14305,6 +14970,7 @@ export default function App() {
                 <PropCoSensitivityView
                   assumptions={propCoAssumptions}
                   opCoModelData={opCoModelData}
+                  groups={groups}
                 />
               )}
               {activeTab === "assumptions" && (
